@@ -1,0 +1,42 @@
+const handleDeleteProperty = async (property) => {
+  if (!isAuthenticated) {
+    Toast.show('Please login again');
+    return;
+  }
+  
+  // ✅ FIXED: Extract property ID with all possible field names
+  const propertyId = property?.property_id || 
+                     property?.propertyId || 
+                     property?.id || 
+                     property?.ID;
+  
+  if (!propertyId) {
+    console.error('❌ Invalid property object:', property);
+    Toast.show('Invalid property ID');
+    return;
+  }
+
+  console.log('🗑️ Attempting to delete property:', {
+    propertyId,
+    propertyName: property?.name,
+    landlordId,
+    token: authToken ? '✅ Present' : '❌ Missing'
+  });
+
+  try {
+    // ✅ Call the delete action with proper parameters
+    await dispatch(deleteProperty({ 
+      propertyId, 
+      token: authToken, 
+      landlordId 
+    })).unwrap();
+    
+    Toast.show('Property deleted successfully');
+    
+    // Refresh the properties list
+    handleRefresh();
+  } catch (err) {
+    console.error('❌ Delete property error:', err);
+    Toast.show(err?.message || err || 'Failed to delete property');
+  }
+};

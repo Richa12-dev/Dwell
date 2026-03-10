@@ -1,0 +1,70 @@
+/**
+ * This file contains the application's colors.
+ *
+ * Define color here instead of duplicating them throughout the components.
+ * That allows to change them more easily later on.
+ */
+//01a79b
+//f96ea8
+export default {
+  transparent: 'rgba(0,0,0,0)',
+    backgroundColor:'rgba(255, 255, 255, 0.7)',
+  // Example colors:
+  white: '#ffffff',
+  clr66: '#666666',
+  black: '#000000',
+  text: '#C6F5FC',
+  primary: '#733f2dff',
+  success: '#28a745',
+  error: '#4169e1',
+  label: '#4169e1',
+  button: '#4169e1',
+  border: '#dbdbdb',
+  clrF1F9FF: '#F1F9FF',
+  shadow: '#4169e1',
+  inputText: '#A3A3A3',
+  clr0094FF: '#4169e1',
+  user: '#C6F5FC',
+  lightBlue: '#F1F9FF',
+  placeHolder: '#5B5B5B',
+  inputPlaceholder: '#d2d2d2',
+  lightBlueBorder: '#0AAAC1',
+  disabled: 'rgba(192,192,192,.1)',
+  green: '#24D104',
+  red: '#E53935',
+  blueTextColor: '#4169e1',
+  blueHeadingColor: '#4169e1',
+  lightBg1: '#f0aad9',
+  lightBg2: '#87a0f5',
+  lightBg3: '#8fb870',
+  lightBg4: '#b89b70',
+  overlay: 'rgba(0, 0, 0, 0.7)',
+  lightGrey: '#f2f5f5',
+  grey: '#8b8e8e',
+  blue: '#4051b5',
+  lightBg1: '#f0aad9',
+  lightBg2: '#87a0f5',
+  lightBg3: '#8fb870',
+  lightBg4: '#b89b70',
+  footerColor: '#655ab1',
+  lightbackground: '#F1F1F1',
+  cardBackground: '#e6f6fc',
+  splashBAckground: '#47ee40',
+  titleColor: '#a2a2a2',
+  lightGreen: '#e4f8dd',
+  borderLine: '#e6e6e6',
+  headerBackground: '#f2f2f2',
+  disbursalColor: '#50ab5a',
+  yellowStatus: '#f6c345',
+  secondPrimary: '#56746b',
+    
+    // Avatar Colors for Initials
+     avatarRed: '#EF4444',
+     avatarAmber: '#F59E0B',
+     avatarEmerald: '#10B981',
+     avatarBlue: '#3B82F6',
+     avatarViolet: '#8B5CF6',
+     avatarPink: '#EC4899',
+     avatarCyan: '#06B6D4',
+     avatarOrange: '#e4f8dd',
+};

@@ -1,0 +1,164 @@
+// src/utils/jobHelpers.js
+
+/**
+ * Check if a job can be accepted by the contractor
+ * @param {Object} job - The job/ticket object
+ * @returns {Object} - { canAccept: boolean, reason: string }
+ */
+export const canAcceptJob = (job) => {
+  if (!job) {
+    return { canAccept: false, reason: 'No job provided' };
+  }
+
+  const assignment = job.contractor_assignment;
+  
+  // Check if already accepted
+  if (assignment?.state === 'ACCEPTED') {
+    return { canAccept: false, reason: 'Job already accepted' };
+  }
+
+  // Check if job is closed
+  if (job.status === 'CLOSED' || job.status === 'COMPLETED') {
+    return { canAccept: false, reason: 'Job is closed or completed' };
+  }
+
+  // Check if assigned to someone else
+  if (assignment?.assigned_contractor_id && assignment?.state === 'ACCEPTED') {
+    return { canAccept: false, reason: 'Job assigned to another contractor' };
+  }
+
+  return { canAccept: true, reason: '' };
+};
+
+/**
+ * Check if a job can be declined
+ * @param {Object} job - The job/ticket object
+ * @returns {Object} - { canDecline: boolean, reason: string }
+ */
+export const canDeclineJob = (job) => {
+  if (!job) {
+    return { canDecline: false, reason: 'No job provided' };
+  }
+
+  const assignment = job.contractor_assignment;
+
+  // Can't decline if already accepted
+  if (assignment?.state === 'ACCEPTED') {
+    return { canDecline: false, reason: 'Cannot decline accepted job' };
+  }
+
+  // Can't decline if closed
+  if (job.status === 'CLOSED' || job.status === 'COMPLETED') {
+    return { canDecline: false, reason: 'Job is closed or completed' };
+  }
+
+  return { canDecline: true, reason: '' };
+};
+
+/**
+ * Get job status display info
+ * @param {Object} job - The job/ticket object
+ * @returns {Object} - { status: string, color: string, backgroundColor: string }
+ */
+export const getJobStatusInfo = (job) => {
+  const assignment = job?.contractor_assignment;
+  const status = job?.status?.toUpperCase();
+
+  // Check assignment state first
+  if (assignment?.state === 'ACCEPTED') {
+    return {
+      status: 'In Progress',
+      color: '#F57C00',
+      backgroundColor: '#FFF3E0',
+    };
+  }
+
+  if (assignment?.state === 'OFFERED') {
+    return {
+      status: 'New',
+      color: '#1976D2',
+      backgroundColor: '#E3F2FD',
+    };
+  }
+
+  // Then check ticket status
+  switch (status) {
+    case 'COMPLETED':
+    case 'CLOSED':
+      return {
+        status: 'Completed',
+        color: '#388E3C',
+        backgroundColor: '#E8F5E9',
+      };
+    case 'OPEN':
+      if (assignment?.state === 'UNASSIGNED') {
+        return {
+          status: 'Available',
+          color: '#1976D2',
+          backgroundColor: '#E3F2FD',
+        };
+      }
+      return {
+        status: 'Open',
+        color: '#1976D2',
+        backgroundColor: '#E3F2FD',
+      };
+    default:
+      return {
+        status: status || 'Unknown',
+        color: '#757575',
+        backgroundColor: '#F5F5F5',
+      };
+  }
+};
+
+/**
+ * Format job data for display
+ * @param {Object} job - The job/ticket object
+ * @returns {Object} - Formatted job data
+ */
+export const formatJobForDisplay = (job) => {
+  if (!job) return null;
+
+  const snapshot = job.contractor_job_snapshot || {};
+  const property = snapshot.property || {};
+  const tenant = snapshot.tenant || {};
+  
+  // Build address from property data
+  const addressParts = [
+    property.name,
+    property.street,
+    property.city,
+    property.state,
+    property.pincode,
+  ].filter(Boolean);
+  
+  const address = addressParts.length > 0
+    ? addressParts.join(', ')
+    : job.location || 'Address not available';
+
+  // Format preferred date
+  const preferredWindow = job.preferred_window || {};
+  const preferredDate = preferredWindow.preferred_date_local ||
+    new Date(preferredWindow.start_utc).toLocaleDateString();
+
+  return {
+    ticket_id: job.ticket_id,
+    title: job.title || job.category || 'Untitled Job',
+    description: job.description || 'No description provided',
+    address,
+    category: job.category,
+    status: job.status,
+    priority: job.priority,
+    price: job.price || 'Price not set',
+    date: preferredDate || 'Date not set',
+    tenantName: tenant.name,
+    tenantPhone: tenant.phone,
+    tenantEmail: tenant.email,
+    propertyName: property.name,
+    contractor_assignment: job.contractor_assignment,
+    attachments: job.attachments,
+    preferred_window: job.preferred_window,
+    confirmed_window: job.confirmed_window,
+  };
+};
