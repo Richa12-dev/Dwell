@@ -68,6 +68,7 @@ const OtpScreen = ({ navigation, route }) => {
             await dispatch(confirmSignUp({
                 email: email,
                 otpCode: otpCode,
+             
             })).unwrap();
             // Success navigation is handled in the service
         } catch (error) {

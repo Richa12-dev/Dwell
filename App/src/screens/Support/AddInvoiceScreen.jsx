@@ -1,5 +1,4 @@
-// AddInvoiceScreen.jsx
-// Full-screen invoice creation page — replaces InvoiceModal.jsx
+
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,

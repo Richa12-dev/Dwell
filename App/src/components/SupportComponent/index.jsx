@@ -29,7 +29,6 @@ const SupportComponent = ({data, fetchdata, onFeedbackPress, navigation}) => {
     feedBackQuaryUrlLoading,
     changeProduct,
   } = useSelector(loginDataSelectors.getData);
-  console.log(feedBackUrlData, 'feedBackUrlData------55-----feedBackUrlData');
 
   const fetchData2 = () => {
     setLoading(false);

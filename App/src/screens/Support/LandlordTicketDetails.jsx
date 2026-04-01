@@ -516,7 +516,7 @@ const styles = StyleSheet.create({
 
   // Tenant Card
   tenantCard: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.backgroundColor,
     marginHorizontal: 16,
     marginTop: 16,
     padding: 16,
@@ -569,7 +569,7 @@ const styles = StyleSheet.create({
 
   // Card
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.backgroundColor,
     marginHorizontal: 16,
     marginTop: 16,
     padding: 16,
@@ -768,7 +768,7 @@ addResponseLinkText: {
     alignItems: 'center',
   },
   modalContainer: {
-    backgroundColor: '#fff',
+    backgroundColor:Colors.backgroundColor,
     borderRadius: 20,
     width: wp('85%'),
     maxHeight: hp('60%'),

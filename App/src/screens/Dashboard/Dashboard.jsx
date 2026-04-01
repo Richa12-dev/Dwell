@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import {
   View,
+  Text,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
-import { Box, Text, VStack, HStack } from "native-base";
 import {
   heightPercentageToDP as hp,
   widthPercentageToDP as wp,
@@ -48,114 +48,66 @@ const Dashboard = () => {
   // Fetch tenant properties on mount
   useEffect(() => {
     if (token && tenant_sub) {
-      console.log('📡 Dashboard: Fetching tenant properties');
-      dispatch(
-        getTenantProperties({
-          tenantId: tenant_sub,
-          token: token,
-        })
-      );
+      dispatch(getTenantProperties({ tenantId: tenant_sub, token }));
     }
   }, [dispatch, token, tenant_sub]);
 
   // Get current property (from Redux or first tenant property)
-  const currentProperty = reduxCurrentProperty ||
+  const currentProperty =
+    reduxCurrentProperty ||
     (tenantProperties && tenantProperties.length > 0 ? tenantProperties[0] : null);
 
   // Extract property ID
-  const propertyId = currentProperty?.property_id ||
-                     currentProperty?.propertyId ||
-                     currentProperty?.id;
+  const propertyId =
+    currentProperty?.property_id ||
+    currentProperty?.propertyId ||
+    currentProperty?.id;
 
   // Fetch detailed property data when propertyId is available
   useEffect(() => {
     if (propertyId && token) {
-      console.log('📡 Dashboard: Fetching property details for:', propertyId);
-      dispatch(
-        getProperty({
-          propertyId,
-          token,
-        })
-      );
+      dispatch(getProperty({ propertyId, token }));
     }
   }, [dispatch, propertyId, token]);
 
   // Fetch maintenance requests
   useEffect(() => {
     if (token && tenant_sub) {
-      console.log('📡 Dashboard: Fetching maintenance requests');
-      dispatch(
-        getMaintenanceRequests({
-          tenant_id: tenant_sub,
-          token: idToken,
-        })
-      );
+      dispatch(getMaintenanceRequests({ tenant_id: tenant_sub, token: idToken }));
     }
   }, [dispatch, idToken, tenant_sub]);
 
-  // ✅ Use the same getDisplayStatus function as LandlordSupport
   const getDisplayStatus = (item) => {
-    // Priority 1: Check contractor_assignment.state for COMPLETED
-    if (item.contractor_assignment?.state?.toUpperCase() === 'COMPLETED') {
-      return 'Resolved';
-    }
-
-    // Priority 2: Check main status field
+    if (item.contractor_assignment?.state?.toUpperCase() === "COMPLETED") return "Resolved";
     const mainStatus = item.status?.toLowerCase();
-    if (mainStatus === 'completed' || mainStatus === 'closed' || mainStatus === 'resolved') {
-      return 'Resolved';
-    }
-
-    // Priority 3: Check for completion indicators
-    if (item.completed_at || item.completion_notes) {
-      return 'Resolved';
-    }
-
-    // Check for In Progress
-    if (item.contractor_assignment?.state?.toUpperCase() === 'ACCEPTED' ||
-        item.contractor_assignment?.state?.toUpperCase() === 'IN_PROGRESS') {
-      return 'In Progress';
-    }
-
-    // Check for New Request
-    if (mainStatus === 'open' || mainStatus === 'new') {
-      return 'New Request';
-    }
-
-    return 'Pending';
+    if (mainStatus === "completed" || mainStatus === "closed" || mainStatus === "resolved") return "Resolved";
+    if (item.completed_at || item.completion_notes) return "Resolved";
+    if (
+      item.contractor_assignment?.state?.toUpperCase() === "ACCEPTED" ||
+      item.contractor_assignment?.state?.toUpperCase() === "IN_PROGRESS"
+    ) return "In Progress";
+    if (mainStatus === "open" || mainStatus === "new") return "New Request";
+    return "Pending";
   };
 
-  // ✅ Calculate counts using the same logic as LandlordSupport
-  const newRequestCount = requests.filter(r =>
-    getDisplayStatus(r) === 'New Request'
-  ).length;
+  const newRequestCount = requests.filter((r) => getDisplayStatus(r) === "New Request").length;
+  const inProgressCount = requests.filter((r) => getDisplayStatus(r) === "In Progress").length;
+  const completedCount = requests.filter((r) => getDisplayStatus(r) === "Resolved").length;
 
-  const inProgressCount = requests.filter(r =>
-    getDisplayStatus(r) === 'In Progress'
-  ).length;
-
-  const completedCount = requests.filter(r =>
-    getDisplayStatus(r) === 'Resolved'
-  ).length;
-
-  // Filter upcoming maintenance (scheduled for today or future)
   const getUpcomingMaintenance = () => {
     const now = new Date();
     const today = new Date(now.setHours(0, 0, 0, 0));
-
     return requests
-      .filter(item => {
+      .filter((item) => {
         if (!item.preferred_window?.start_utc) return false;
         const scheduledDate = new Date(item.preferred_window.start_utc);
-        return scheduledDate >= today &&
-               item.status?.toLowerCase() !== 'closed' &&
-               item.status?.toLowerCase() !== 'resolved';
+        return (
+          scheduledDate >= today &&
+          item.status?.toLowerCase() !== "closed" &&
+          item.status?.toLowerCase() !== "resolved"
+        );
       })
-      .sort((a, b) => {
-        const dateA = new Date(a.preferred_window.start_utc);
-        const dateB = new Date(b.preferred_window.start_utc);
-        return dateA - dateB;
-      });
+      .sort((a, b) => new Date(a.preferred_window.start_utc) - new Date(b.preferred_window.start_utc));
   };
 
   const upcomingMaintenance = getUpcomingMaintenance();
@@ -163,42 +115,32 @@ const Dashboard = () => {
     ? upcomingMaintenance
     : upcomingMaintenance.slice(0, 1);
 
-  // Format date for display
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
+    return new Date(dateString).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     });
   };
 
-  // Format time window
   const formatTimeWindow = (startUtc, endUtc) => {
     if (!startUtc || !endUtc) return "";
-    
-    const start = new Date(startUtc);
-    const end = new Date(endUtc);
-    
     const formatTime = (date) =>
-      date.toLocaleTimeString("en-US", {
+      new Date(date).toLocaleTimeString("en-US", {
         hour: "numeric",
         minute: "2-digit",
         hour12: true,
       });
-    
-    return `${formatTime(start)} - ${formatTime(end)}`;
+    return `${formatTime(startUtc)} - ${formatTime(endUtc)}`;
   };
 
   return (
     <Container style={styles.pageContainer}>
-      {/* 🔗 Quick Links Section */}
-      <VStack mt={hp(1)} mx={wp(4.5)}>
-        <Text fontSize={hp(2.2)} bold color={Colors.black} mb={hp(1.5)} alignItems="flex-start">
-          Quick Links
-        </Text>
-        <HStack justifyContent="space-around" mt={hp(1)} space={wp(1.6)} width="100%" alignItems="center">
+      {/* Quick Links Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Quick Links</Text>
+        <View style={styles.quickLinksRow}>
           <QuickLink
             icon={icons.LandlordRent}
             label="Contact Landlord"
@@ -206,7 +148,7 @@ const Dashboard = () => {
           />
           <QuickLink
             icon={icons.RentHistory}
-            label="Rent History"
+            label={"Rent\nHistory"}
             onPress={() => navigation.navigate("RentHistory")}
           />
           <QuickLink
@@ -214,126 +156,111 @@ const Dashboard = () => {
             label="Rent Documents"
             onPress={() => navigation.navigate("RentDocuments")}
           />
-        <QuickLink
+          <QuickLink
             icon={icons.redMessages}
-            label="Report Issue"
-           onPress={() => navigation.navigate("AIAssistant", { hideSuggestions: true })}
+            label={"Report\nIssue"}
+            onPress={() => navigation.navigate("AIAssistant", { hideSuggestions: true })}
           />
-        </HStack>
-      </VStack>
+        </View>
+      </View>
 
-      {/* 💰 Rent Payment Card */}
+      {/* Rent Payment Card */}
       <View style={styles.rentCardWrapper}>
         <View style={styles.glassCard}>
           <View style={styles.rentCardInner}>
-            <HStack alignItems="center" space={3}>
+            <View style={styles.row}>
               <View style={styles.rentIconBox}>
                 <AppIcon name={icons.RentHistory} height={hp(3)} width={hp(3)} />
               </View>
 
-              <VStack flex={1}>
-                <Text fontSize={hp(3.2)} bold color={Colors.black}>
-                  $2600
-                </Text>
-                <Text fontSize={hp(1.8)} color={Colors.textGray}>
-                  Pay your rent now
-                </Text>
-              </VStack>
+              <View style={styles.rentTextBlock}>
+                <Text style={styles.rentAmount}>$2600</Text>
+                <Text style={styles.rentSubText}>Pay your rent now</Text>
+              </View>
 
               <TouchableOpacity style={styles.payRentBtn}>
                 <Text style={styles.payRentBtnText}>Pay Rent</Text>
               </TouchableOpacity>
-            </HStack>
+            </View>
 
-            <HStack alignItems="center" space={2} mt={hp(1.5)}>
+            <View style={[styles.row, { marginTop: hp(1.5) }]}>
               <AppIcon name={icons.calendar} height={hp(2)} width={hp(2)} />
-              <Text fontSize={hp(1.7)} color={Colors.textGray}>
+              <Text style={[styles.rentSubText, { marginLeft: 6 }]}>
                 Next Due Date:{" "}
-                <Text bold color={Colors.black}>
-                  Sep 28, 2025
-                </Text>
+                <Text style={styles.boldBlack}>Sep 28, 2025</Text>
               </Text>
-            </HStack>
+            </View>
           </View>
         </View>
       </View>
 
-      {/* 🛠 Request Help Section */}
-      <VStack mx={wp(4.5)} mt={hp(2)}>
-        <Text fontSize={hp(2.2)} bold color={Colors.black} mb={hp(1.5)}>
-          Request Help
-        </Text>
-
+      {/* Request Help Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Request Help</Text>
         <View style={styles.glassCard}>
-          <Box style={styles.glassCardInner}>
+          <View style={styles.glassCardInner}>
             {maintenanceLoading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color={Colors.primary} />
               </View>
             ) : (
               <>
-                <HStack justifyContent="space-around" mb={hp(2)}>
-                  <VStack alignItems="center" flex={1}>
-                    <HStack alignItems="center" space={2}>
+                <View style={styles.statsRow}>
+                  {/* New Request */}
+                  <View style={styles.statItem}>
+                    <View style={styles.row}>
                       <AppIcon name={icons.email} height={hp(2.2)} width={hp(2.2)} />
-                      <Text fontSize={hp(2.5)} bold color={Colors.black}>
-                        {newRequestCount.toString().padStart(2, '0')}
+                      <Text style={[styles.statCount, { marginLeft: 6 }]}>
+                        {newRequestCount.toString().padStart(2, "0")}
                       </Text>
-                    </HStack>
-                    <Text fontSize={hp(1.6)} color={Colors.textGray} mt={1}>
-                      New Request
-                    </Text>
-                  </VStack>
+                    </View>
+                    <Text style={styles.statLabel}>New Request</Text>
+                  </View>
 
-                  <VStack alignItems="center" flex={1}>
-                    <HStack alignItems="center" space={2}>
+                  {/* In Progress */}
+                  <View style={styles.statItem}>
+                    <View style={styles.row}>
                       <View style={styles.progressIcon}>
                         <Text style={styles.progressIconText}>⏱</Text>
                       </View>
-                      <Text fontSize={hp(2.5)} bold color={Colors.black}>
-                        {inProgressCount.toString().padStart(2, '0')}
+                      <Text style={[styles.statCount, { marginLeft: 6 }]}>
+                        {inProgressCount.toString().padStart(2, "0")}
                       </Text>
-                    </HStack>
-                    <Text fontSize={hp(1.6)} color={Colors.textGray} mt={1}>
-                      In Progress
-                    </Text>
-                  </VStack>
+                    </View>
+                    <Text style={styles.statLabel}>In Progress</Text>
+                  </View>
 
-                  <VStack alignItems="center" flex={1}>
-                    <HStack alignItems="center" space={2}>
+                  {/* Completed */}
+                  <View style={styles.statItem}>
+                    <View style={styles.row}>
                       <View style={styles.completedIcon}>
                         <Text style={styles.completedIconText}>✓</Text>
                       </View>
-                      <Text fontSize={hp(2.5)} bold color={Colors.black}>
-                        {completedCount.toString().padStart(2, '0')}
+                      <Text style={[styles.statCount, { marginLeft: 6 }]}>
+                        {completedCount.toString().padStart(2, "0")}
                       </Text>
-                    </HStack>
-                    <Text fontSize={hp(1.6)} color={Colors.textGray} mt={1}>
-                      Completed
-                    </Text>
-                  </VStack>
-                </HStack>
+                    </View>
+                    <Text style={styles.statLabel}>Completed</Text>
+                  </View>
+                </View>
 
                 <TouchableOpacity
                   style={styles.viewDetailsBtn}
-                  onPress={() => navigation.navigate('Support')}
+                  onPress={() => navigation.navigate("Support")}
                 >
                   <Text style={styles.viewDetailsBtnText}>View Details</Text>
                 </TouchableOpacity>
               </>
             )}
-          </Box>
+          </View>
         </View>
-      </VStack>
+      </View>
 
-      {/* 🧰 Upcoming Maintenance Section */}
-      <VStack mx={wp(4.5)} mt={hp(2)} mb={hp(3)}>
-        <Text fontSize={hp(2.2)} bold color={Colors.black} mb={hp(1.5)}>
-          Upcoming Maintenance
-        </Text>
-
+      {/* Upcoming Maintenance Section */}
+      <View style={[styles.section, { marginBottom: hp(3) }]}>
+        <Text style={styles.sectionTitle}>Upcoming Maintenance</Text>
         <View style={styles.glassCard}>
-          <Box style={styles.glassCardInner}>
+          <View style={styles.glassCardInner}>
             {maintenanceLoading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color={Colors.primary} />
@@ -341,49 +268,46 @@ const Dashboard = () => {
             ) : upcomingMaintenance.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Icon name="calendar-check" size={40} color="#E0E0E0" />
-                <Text fontSize={hp(1.8)} color={Colors.textGray} mt={2} textAlign="center">
+                <Text style={[styles.statLabel, { marginTop: 8, textAlign: "center" }]}>
                   No upcoming maintenance scheduled
                 </Text>
               </View>
             ) : (
               <>
-                <VStack space={3}>
+                <View style={styles.maintenanceList}>
                   {displayedItems.map((item, index) => (
                     <TouchableOpacity
                       key={item.ticket_id || item.id}
-                      onPress={() => {
-                        navigation.navigate("QueryDetails", { data: item });
-                      }}
+                      onPress={() => navigation.navigate("QueryDetails", { data: item })}
                     >
-                      <HStack
-                        alignItems="center"
-                        space={3}
-                        pb={index < displayedItems.length - 1 ? 3 : 0}
-                        borderBottomWidth={index < displayedItems.length - 1 ? 1 : 0}
-                        borderBottomColor="#F3F4F6"
+                      <View
+                        style={[
+                          styles.maintenanceItem,
+                          index < displayedItems.length - 1 && styles.maintenanceItemBorder,
+                        ]}
                       >
                         <View style={styles.maintenanceIconBox}>
-                          <AppIcon
-                            name={icons.maintenance}
-                            height={hp(2.5)}
-                            width={hp(2.5)}
-                          />
+                          <AppIcon name={icons.maintenance} height={hp(2.5)} width={hp(2.5)} />
                         </View>
-                        <VStack flex={1}>
-                          <Text fontSize={hp(1.6)} color={Colors.textGray}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.statLabel}>
                             {formatDate(item.preferred_window?.start_utc)}
                           </Text>
-                          <Text fontSize={hp(1.9)} bold color={Colors.black} mt={0.5}>
-                            {item.title || 'Maintenance Request'}
+                          <Text style={[styles.boldBlack, { fontSize: hp(1.9), marginTop: 2 }]}>
+                            {item.title || "Maintenance Request"}
                           </Text>
-                          <Text fontSize={hp(1.6)} color={Colors.textGray} mt={0.5}>
-                            {item.location || 'Location not specified'} • {formatTimeWindow(item.preferred_window?.start_utc, item.preferred_window?.end_utc)}
+                          <Text style={[styles.statLabel, { marginTop: 2 }]}>
+                            {item.location || "Location not specified"} •{" "}
+                            {formatTimeWindow(
+                              item.preferred_window?.start_utc,
+                              item.preferred_window?.end_utc
+                            )}
                           </Text>
-                        </VStack>
-                      </HStack>
+                        </View>
+                      </View>
                     </TouchableOpacity>
                   ))}
-                </VStack>
+                </View>
 
                 {upcomingMaintenance.length > 1 && (
                   <TouchableOpacity
@@ -391,18 +315,17 @@ const Dashboard = () => {
                     onPress={() => setShowAllMaintenance(!showAllMaintenance)}
                   >
                     <Text style={styles.showMoreText}>
-                      {showAllMaintenance ? "Show less details" : `Show more details (${upcomingMaintenance.length - 1} more)`}{" "}
-                      <Text style={styles.arrow}>
-                        {showAllMaintenance ? "▲" : "▼"}
-                      </Text>
+                      {showAllMaintenance
+                        ? "Show less details ▲"
+                        : `Show more details (${upcomingMaintenance.length - 1} more) ▼`}
                     </Text>
                   </TouchableOpacity>
                 )}
               </>
             )}
-          </Box>
+          </View>
         </View>
-      </VStack>
+      </View>
     </Container>
   );
 };
@@ -413,19 +336,28 @@ const QuickLink = ({ icon, label, onPress }) => (
     <View style={styles.iconCircle}>
       <AppIcon name={icon} height={hp(3.5)} width={hp(3.5)} />
     </View>
-    <Text
-      fontSize={hp(1.9)}
-      color={Colors.textGray}
-      style={styles.quickLinkText}
-      numberOfLines={2}
-    >
-      {label}
-    </Text>
+    <Text style={styles.quickLinkText}>{label}</Text>
   </TouchableOpacity>
 );
 
 const styles = StyleSheet.create({
   pageContainer: {},
+  section: {
+    marginHorizontal: wp(4.5),
+    marginTop: hp(2),
+  },
+  sectionTitle: {
+    fontSize: hp(2.2),
+    fontWeight: "bold",
+    color: Colors.black,
+    marginBottom: hp(1.5),
+  },
+  quickLinksRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    marginTop: hp(1),
+  },
   rentCardWrapper: {
     marginHorizontal: wp(4.5),
     marginTop: hp(1),
@@ -444,12 +376,33 @@ const styles = StyleSheet.create({
   },
   glassCardInner: { padding: hp(2) },
   rentCardInner: { padding: hp(2) },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   rentIconBox: {
     backgroundColor: "rgba(255, 255, 255, 0.9)",
     padding: hp(1.2),
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.5)",
+  },
+  rentTextBlock: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  rentAmount: {
+    fontSize: hp(3.2),
+    fontWeight: "bold",
+    color: Colors.black,
+  },
+  rentSubText: {
+    fontSize: hp(1.8),
+    color: Colors.textGray,
+  },
+  boldBlack: {
+    fontWeight: "bold",
+    color: Colors.black,
   },
   payRentBtn: {
     backgroundColor: Colors.red,
@@ -463,9 +416,28 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   payRentBtnText: {
-  color: "#fff",
-  fontWeight: "bold",
-  fontSize: hp(1.8)
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: hp(1.8),
+  },
+  statsRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: hp(2),
+  },
+  statItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  statCount: {
+    fontSize: hp(2.5),
+    fontWeight: "bold",
+    color: Colors.black,
+  },
+  statLabel: {
+    fontSize: hp(1.6),
+    color: Colors.textGray,
+    marginTop: 4,
   },
   progressIcon: {
     width: hp(2.5),
@@ -484,7 +456,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  completedIconText: { fontSize: hp(1.5), color: "#059669", fontWeight: "bold" },
+  completedIconText: {
+    fontSize: hp(1.5),
+    color: "#059669",
+    fontWeight: "bold",
+  },
   viewDetailsBtn: {
     borderWidth: 2,
     borderColor: Colors.red,
@@ -498,6 +474,19 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: hp(1.8),
   },
+  maintenanceList: {
+    gap: 12,
+  },
+  maintenanceItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: hp(1.5),
+    gap: 12,
+  },
+  maintenanceItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
   maintenanceIconBox: {
     backgroundColor: "rgba(255, 232, 232, 0.9)",
     padding: hp(1.5),
@@ -505,13 +494,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.3)",
   },
-  showMoreBtn: { paddingTop: hp(2), alignItems: "center" },
-  showMoreText:{
-  fontSize: hp(1.7),
-  color: Colors.textGray,
-  fontWeight: "600"
-   },
-  arrow: { fontSize: hp(1.4) },
+  showMoreBtn: {
+    paddingTop: hp(2),
+    alignItems: "center",
+  },
+  showMoreText: {
+    fontSize: hp(1.7),
+    color: Colors.textGray,
+    fontWeight: "600",
+  },
   loadingContainer: {
     paddingVertical: hp(2),
     alignItems: "center",
@@ -534,6 +525,8 @@ const styles = StyleSheet.create({
     color: Colors.black,
     width: wp(22),
     marginTop: hp(0.5),
+    height: hp(4.5),
+    lineHeight: hp(2.2),
   },
   iconCircle: {
     backgroundColor: "#fff",
@@ -544,7 +537,7 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 3,
     borderWidth: 1.5,
-    borderColor: Colors.red,
+    borderColor: Colors.lightRed,
   },
 });
 

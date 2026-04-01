@@ -295,40 +295,48 @@ const contractorSlice = createSlice({
         // Reconcile declinedJobs:
         //   - freshDeclined  = server-confirmed declines from this API call
         //   - localAcceptedByOther = locally-flagged "_acceptedByOther" entries
-        //     (jobs taken by another contractor, not returned by the server at all)
-        //     These must be PRESERVED across polls — the server will never return
-        //     them, so wiping declinedJobs on every poll would erase them.
+        //     These are preserved ONLY when:
+        //       1. They are NOT in freshDeclined (not server-confirmed decline yet)
+        //       2. They are NOT in activeJobs — if the server says a job is active
+        //          for this contractor, the local "declined by other" flag is stale
+        //          and must be removed. This is the server's source of truth.
         const freshDeclined = apiDeclined.map((job) => ({
           ...job,
           contractor_assignment: { ...job.contractor_assignment, state: 'DECLINED' },
         }));
-        const freshDeclinedIds = new Set(freshDeclined.map((j) => j.ticket_id));
+        const freshDeclinedIds  = new Set(freshDeclined.map((j) => j.ticket_id));
+        const activeJobIds      = new Set(activeJobs.map((j) => j.ticket_id));
 
-        // Keep local _acceptedByOther entries whose ticket_id is not in the
-        // fresh server response (they never will be — that's the whole point)
+        // Keep local _acceptedByOther entries only when:
+        //   - NOT confirmed active by the server (would mean we own it or it's open)
+        //   - NOT confirmed declined by the server (freshDeclined covers those)
         const localAcceptedByOther = (state.declinedJobs || []).filter(
-          (j) => j._acceptedByOther === true && !freshDeclinedIds.has(j.ticket_id),
+          (j) =>
+            j._acceptedByOther === true &&
+            !freshDeclinedIds.has(j.ticket_id) &&
+            !activeJobIds.has(j.ticket_id),   // ← server says active → evict stale local flag
         );
 
         state.declinedJobs = [...freshDeclined, ...localAcceptedByOther];
 
         // ── Reconcile pendingJobs against fresh API response ──────────────────
         //
-        // KEY INSIGHT from the actual API contract:
-        // The /contractor/jobs endpoint returns ONLY jobs that belong to THIS
-        // contractor. If a pendingJob's ticket_id is completely absent from the
-        // fresh response, it means the job was accepted by another contractor and
-        // is no longer visible to us at all.
+        // IMPORTANT: The /contractor/jobs endpoint only returns jobs that this
+        // contractor has been assigned to (accepted/declined). A brand-new offer
+        // that nobody has acted on yet will NOT appear in this response at all.
         //
-        // We do NOT need to compare accepted_by IDs — absence from the response
-        // IS the signal.
+        // Therefore "absent from response" does NOT mean "taken by another
+        // contractor" — it just means the job is still open and unassigned.
         //
-        // Three cases for each pendingJob:
-        //   A. ticket_id found in activeJobs   → we accepted it, remove from pending
-        //   B. ticket_id found in apiDeclined  → we declined it, remove from pending
-        //   C. ticket_id NOT in freshJobs at all → taken by another contractor,
-        //                                          move to declinedJobs with reason
-        const activeIds = new Set(activeJobs.map((j) => j.ticket_id));
+        // We ONLY mark a pendingJob as taken-by-other when:
+        //   A. ticket_id found in activeJobs  → we accepted it, remove from pending
+        //   B. ticket_id found in apiDeclined → we declined it, remove from pending
+        //   C. ticket_id IS in freshJobs with state ACCEPTED but we didn't accept it
+        //      (i.e. it's not in activeIds and assignment.state is ACCEPTED)
+        //      → another contractor accepted it, move to declined
+        //
+        // Case "absent entirely" is intentionally NOT treated as declined.
+        const activeIds         = activeJobIds; // reuse — same Set, no redeclaration
         const allFreshTicketIds = new Set(freshJobs.map((j) => j.ticket_id));
         if (!state.declinedJobs) state.declinedJobs = [];
 
@@ -336,30 +344,43 @@ const contractorSlice = createSlice({
           const tid = pJob.ticket_id;
           if (!tid) return;
 
-          // Case A or B — job is in the response, handled by normal state updates
-          if (allFreshTicketIds.has(tid)) return;
+          // Skip jobs currently being accepted (acceptingJobId tracked in component,
+          // but we guard here by checking if they just appeared in activeJobs)
+          if (activeIds.has(tid)) return; // Case A — we just accepted it
 
-          // Case C — job has vanished from this contractor's API response entirely
-          // → another contractor accepted it before we responded
-          const alreadyTracked = state.declinedJobs.some((j) => j.ticket_id === tid);
-          if (!alreadyTracked) {
-            state.declinedJobs.unshift({
-              ...pJob,
-              contractor_assignment: {
-                ...(pJob.contractor_assignment || {}),
-                state: 'DECLINED',
-              },
-              _declinedAt:      new Date().toISOString(),
-              _declineReason:   'Accepted by another contractor',
-              _acceptedByOther: true,
-            });
+          // Case C — job IS in the fresh response AND is already ACCEPTED
+          // but we didn't accept it → another contractor got it
+          if (allFreshTicketIds.has(tid)) {
+            const freshJob = freshJobs.find((j) => j.ticket_id === tid);
+            const freshState = freshJob?.contractor_assignment?.state?.toUpperCase();
+            if (freshState === 'ACCEPTED' || freshState === 'IN_PROGRESS') {
+              const alreadyTracked = state.declinedJobs.some((j) => j.ticket_id === tid);
+              if (!alreadyTracked) {
+                state.declinedJobs.unshift({
+                  ...pJob,
+                  contractor_assignment: {
+                    ...(pJob.contractor_assignment || {}),
+                    state: 'DECLINED',
+                  },
+                  _declinedAt:      new Date().toISOString(),
+                  _declineReason:   'Accepted by another contractor',
+                  _acceptedByOther: true,
+                });
+              }
+            }
+            // Job still open/unassigned in response — keep it in pendingJobs
+            return;
           }
+
+          // Job is completely absent from the response — it could be a fresh
+          // unassigned offer not yet visible to this contractor's job list.
+          // Do NOT move to declined. Leave it in pendingJobs as-is.
         });
 
-        // Remove all pendingJobs that are now in activeJobs (we accepted them)
-        // Also remove ones we just moved to declined (absent from fresh response)
+        // Remove pendingJobs that are now in activeJobs (we accepted them)
+        // Keep everything else — including jobs absent from fresh response
         state.pendingJobs = (state.pendingJobs || []).filter(
-          (j) => j.ticket_id && allFreshTicketIds.has(j.ticket_id) && !activeIds.has(j.ticket_id),
+          (j) => !activeIds.has(j.ticket_id),
         );
       })
       .addCase(getAllContractorJobs.rejected, (state, { payload, error }) => {

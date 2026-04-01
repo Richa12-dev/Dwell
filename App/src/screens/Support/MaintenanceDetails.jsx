@@ -434,7 +434,7 @@ property_lng: property?.lng ?? property?.longitude ?? property?.property_lng ?? 
       
       onClose();
     } catch (error) {
-      console.error("❌ Error submitting maintenance:", error);
+      console.error("Error submitting maintenance:", error);
       Toast.show(error?.message || error?.toString() || "Failed to create request");
     } finally {
       setIsSubmitting(false);

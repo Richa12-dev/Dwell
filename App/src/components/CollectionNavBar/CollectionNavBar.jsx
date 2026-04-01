@@ -32,7 +32,6 @@ const CollectionNavBar = () => {
     try {
       setShowDialog(false);
       await dispatch(logout({token})).unwrap();
-      console.log('Logout successful');
     } catch (error) {
       console.error('Logout failed:', error);
     }
@@ -152,6 +151,7 @@ const styles = StyleSheet.create({
     color: Colors.red,
     letterSpacing: 0.5,
     lineHeight: wp(4.5),
+    fontWeight: "bold",
   },
   rightIcons: {
     flexDirection: 'row',

@@ -1,15 +1,13 @@
-
-
-// aiSlice.js - Optimized Redux slice for AWS AI chat functionality
+// aiSlice.js - Redux slice for AWS AI chat functionality
 import { createSlice, createSelector } from '@reduxjs/toolkit';
 import {
   sendChatMessage,
-  sendChatMessageNew, // ✅ NEW API
+  sendChatMessageNew,
   sendChatMessageWithImage,
-  getAISuggestions
+  getAISuggestions,
 } from './services';
 
-// ✅ Initial State
+// ─── Initial State ────────────────────────────────────────────────────────────
 const initialState = {
   messages: [],
   loading: false,
@@ -23,11 +21,11 @@ const initialState = {
   conversationHistory: [],
 };
 
-// ✅ Optimized ID generator
+// ─── ID Generator ─────────────────────────────────────────────────────────────
 let messageCounter = 0;
 const generateMessageId = (prefix) => `${prefix}-${Date.now()}-${++messageCounter}`;
 
-// ✅ Slice
+// ─── Slice ────────────────────────────────────────────────────────────────────
 const aiSlice = createSlice({
   name: 'ai',
   initialState,
@@ -42,10 +40,10 @@ const aiSlice = createSlice({
       state.conversationHistory = [];
       state.totalTokensUsed = 0;
     },
-      
-      resetAIState: (state) => {
-        Object.assign(state, initialState);
-      },
+
+    resetAIState: (state) => {
+      Object.assign(state, initialState);
+    },
 
     clearChatError: (state) => {
       state.error = null;
@@ -68,8 +66,8 @@ const aiSlice = createSlice({
       const userMessage = {
         id: generateMessageId('user'),
         type: 'user',
-        message: message,
-        sessionId: sessionId,
+        message,
+        sessionId,
         timestamp: new Date().toISOString(),
         hasImage: !!imageUri,
         imageUri: imageUri || null,
@@ -84,7 +82,7 @@ const aiSlice = createSlice({
         id: generateMessageId('ai'),
         type: 'ai',
         message: response,
-        sessionId: sessionId,
+        sessionId,
         timestamp: new Date().toISOString(),
         source: source || 'aws',
       };
@@ -98,7 +96,7 @@ const aiSlice = createSlice({
         id: generateMessageId('error'),
         type: 'error',
         message: error,
-        sessionId: sessionId,
+        sessionId,
         timestamp: new Date().toISOString(),
         isError: true,
       };
@@ -107,8 +105,7 @@ const aiSlice = createSlice({
     },
 
     updateTokenUsage: (state, action) => {
-      const { tokensUsed } = action.payload;
-      state.totalTokensUsed += tokensUsed || 0;
+      state.totalTokensUsed += action.payload?.tokensUsed || 0;
     },
 
     setSuggestions: (state, action) => {
@@ -118,35 +115,31 @@ const aiSlice = createSlice({
 
   extraReducers: (builder) => {
     builder
-      // ✅ NEW API - Send Chat Message
+
+      // ─── sendChatMessageNew ──────────────────────────────────
       .addCase(sendChatMessageNew.pending, (state, action) => {
         state.loading = true;
         state.error = null;
-
         const { message, sessionId } = action.meta.arg;
         const userMessage = {
           id: generateMessageId('user'),
           type: 'user',
-          message: message,
+          message,
           sessionId: sessionId || state.currentSessionId,
           timestamp: new Date().toISOString(),
           hasImage: false,
         };
-
         state.messages.push(userMessage);
         state.lastMessageId = userMessage.id;
-
         state.conversationHistory.push({
           role: 'user',
           content: message,
           timestamp: new Date().toISOString(),
         });
       })
-
       .addCase(sendChatMessageNew.fulfilled, (state, action) => {
         state.loading = false;
         const { response, sessionId, source } = action.payload;
-
         const aiMessage = {
           id: generateMessageId('ai'),
           type: 'ai',
@@ -155,21 +148,17 @@ const aiSlice = createSlice({
           timestamp: new Date().toISOString(),
           source: source || 'aws-new',
         };
-
         state.messages.push(aiMessage);
         state.lastMessageId = aiMessage.id;
-
         state.conversationHistory.push({
           role: 'assistant',
           content: response,
           timestamp: new Date().toISOString(),
         });
       })
-
       .addCase(sendChatMessageNew.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload || 'Failed to send message';
-
         const errorMessage = {
           id: generateMessageId('error'),
           type: 'error',
@@ -178,40 +167,34 @@ const aiSlice = createSlice({
           timestamp: new Date().toISOString(),
           isError: true,
         };
-
         state.messages.push(errorMessage);
         state.lastMessageId = errorMessage.id;
       })
 
-      // ✅ OLD API - Send Chat Message (Text)
+      // ─── sendChatMessage (legacy) ────────────────────────────
       .addCase(sendChatMessage.pending, (state, action) => {
         state.loading = true;
         state.error = null;
-
         const { message, sessionId } = action.meta.arg;
         const userMessage = {
           id: generateMessageId('user'),
           type: 'user',
-          message: message,
+          message,
           sessionId: sessionId || state.currentSessionId,
           timestamp: new Date().toISOString(),
           hasImage: false,
         };
-
         state.messages.push(userMessage);
         state.lastMessageId = userMessage.id;
-
         state.conversationHistory.push({
           role: 'user',
           content: message,
           timestamp: new Date().toISOString(),
         });
       })
-
       .addCase(sendChatMessage.fulfilled, (state, action) => {
         state.loading = false;
         const { response, sessionId, source } = action.payload;
-
         const aiMessage = {
           id: generateMessageId('ai'),
           type: 'ai',
@@ -220,21 +203,17 @@ const aiSlice = createSlice({
           timestamp: new Date().toISOString(),
           source: source || 'aws',
         };
-
         state.messages.push(aiMessage);
         state.lastMessageId = aiMessage.id;
-
         state.conversationHistory.push({
           role: 'assistant',
           content: response,
           timestamp: new Date().toISOString(),
         });
       })
-
       .addCase(sendChatMessage.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload || 'Failed to send message';
-
         const errorMessage = {
           id: generateMessageId('error'),
           type: 'error',
@@ -243,16 +222,14 @@ const aiSlice = createSlice({
           timestamp: new Date().toISOString(),
           isError: true,
         };
-
         state.messages.push(errorMessage);
         state.lastMessageId = errorMessage.id;
       })
 
-      // ✅ Send Chat Message With Image
+      // ─── sendChatMessageWithImage ────────────────────────────
       .addCase(sendChatMessageWithImage.pending, (state, action) => {
         state.loading = true;
         state.error = null;
-
         const { message, sessionId, imageUri } = action.meta.arg;
         const userMessage = {
           id: generateMessageId('user'),
@@ -261,12 +238,10 @@ const aiSlice = createSlice({
           sessionId: sessionId || state.currentSessionId,
           timestamp: new Date().toISOString(),
           hasImage: true,
-          imageUri: imageUri,
+          imageUri,
         };
-
         state.messages.push(userMessage);
         state.lastMessageId = userMessage.id;
-
         state.conversationHistory.push({
           role: 'user',
           content: message || 'Image sent',
@@ -274,11 +249,9 @@ const aiSlice = createSlice({
           hasImage: true,
         });
       })
-
       .addCase(sendChatMessageWithImage.fulfilled, (state, action) => {
         state.loading = false;
         const { response, sessionId, source } = action.payload;
-
         const aiMessage = {
           id: generateMessageId('ai'),
           type: 'ai',
@@ -288,10 +261,8 @@ const aiSlice = createSlice({
           source: source || 'aws',
           hasImage: true,
         };
-
         state.messages.push(aiMessage);
         state.lastMessageId = aiMessage.id;
-
         state.conversationHistory.push({
           role: 'assistant',
           content: response,
@@ -299,11 +270,9 @@ const aiSlice = createSlice({
           hasImage: true,
         });
       })
-
       .addCase(sendChatMessageWithImage.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload || 'Failed to send image message';
-
         const errorMessage = {
           id: generateMessageId('error'),
           type: 'error',
@@ -312,33 +281,30 @@ const aiSlice = createSlice({
           timestamp: new Date().toISOString(),
           isError: true,
         };
-
         state.messages.push(errorMessage);
         state.lastMessageId = errorMessage.id;
       })
 
-      // ✅ Get AI Suggestions
+      // ─── getAISuggestions ────────────────────────────────────
       .addCase(getAISuggestions.fulfilled, (state, action) => {
-        const { suggestions } = action.payload;
-        state.suggestions = suggestions || [];
+        state.suggestions = action.payload?.suggestions || [];
       })
-
       .addCase(getAISuggestions.rejected, (state) => {
         state.suggestions = [
           "My sink is leaking",
           "Toilet won't flush",
           "There's a crack in the wall",
-          "How do I fix a dripping tap?"
+          "How do I fix a dripping tap?",
         ];
       });
   },
 });
 
-// ✅ Export actions
+// ─── Actions ──────────────────────────────────────────────────────────────────
 export const {
   setCurrentSessionId,
   clearChatMessages,
-    resetAIState,
+  resetAIState,
   clearChatError,
   setChatLoading,
   setIsTyping,
@@ -350,39 +316,24 @@ export const {
   setSuggestions,
 } = aiSlice.actions;
 
-// ✅ Selectors (optimized)
+// ─── Selectors ────────────────────────────────────────────────────────────────
 const selectAIState = (state) => state.ai || {};
-
-const selectMessages = createSelector([selectAIState], (state) => state.messages || []);
-const selectLoading = createSelector([selectAIState], (state) => state.loading);
-const selectError = createSelector([selectAIState], (state) => state.error);
-const selectSuggestions = createSelector([selectAIState], (state) => state.suggestions);
-const selectIsTyping = createSelector([selectAIState], (state) => state.isTyping);
-const selectConnectionStatus = createSelector([selectAIState], (state) => state.connectionStatus);
-const selectConversationHistory = createSelector([selectAIState], (state) => state.conversationHistory);
-const selectLastMessageId = createSelector([selectAIState], (state) => state.lastMessageId);
+const selectMessages = createSelector([selectAIState], (ai) => ai.messages || []);
+const selectLoading = createSelector([selectAIState], (ai) => ai.loading);
+const selectError = createSelector([selectAIState], (ai) => ai.error);
+const selectSuggestions = createSelector([selectAIState], (ai) => ai.suggestions || []);
+const selectIsTyping = createSelector([selectAIState], (ai) => ai.isTyping);
+const selectConnectionStatus = createSelector([selectAIState], (ai) => ai.connectionStatus);
+const selectConversationHistory = createSelector([selectAIState], (ai) => ai.conversationHistory || []);
+const selectLastMessageId = createSelector([selectAIState], (ai) => ai.lastMessageId);
 
 export const chatSelectors = {
   getChatData: createSelector(
-    [
-      selectMessages,
-      selectLoading,
-      selectError,
-      selectSuggestions,
-      selectIsTyping,
-      selectConnectionStatus,
-      selectConversationHistory,
-      selectLastMessageId
-    ],
+    [selectMessages, selectLoading, selectError, selectSuggestions,
+     selectIsTyping, selectConnectionStatus, selectConversationHistory, selectLastMessageId],
     (messages, loading, error, suggestions, isTyping, connectionStatus, conversationHistory, lastMessageId) => ({
-      messages,
-      loading,
-      error,
-      suggestions,
-      isTyping,
-      connectionStatus,
-      conversationHistory,
-      lastMessageId,
+      messages, loading, error, suggestions,
+      isTyping, connectionStatus, conversationHistory, lastMessageId,
     })
   ),
   getMessages: selectMessages,
@@ -391,5 +342,4 @@ export const chatSelectors = {
   getConversationHistory: selectConversationHistory,
 };
 
-// ✅ Default export
 export default aiSlice.reducer;

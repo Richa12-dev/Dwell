@@ -56,9 +56,7 @@ const initialForm = {
     pool: false,
   },
   availability_status: "Available",
-  tenant_id: "",
-  tenant_name: "",
-  tenant_email: "",
+  tenants: [], // array of { name, email, tenant_id }
 };
 
 /* ========================================
@@ -406,7 +404,7 @@ const Step3 = memo(({
         </TouchableOpacity>
       </View>
 
-      {/* Tenant Assignment */}
+      {/* Multi-Tenant Assignment */}
       {form.availability_status !== 'Available' && (
         <View style={styles.fieldContainer}>
           <View style={styles.labelRow}>
@@ -414,29 +412,69 @@ const Step3 = memo(({
             <Text style={styles.label}>Tenant Assignment</Text>
           </View>
 
-          <Text style={styles.subLabel}>Tenant Email</Text>
-          <TextInput
-            mode="outlined"
-            placeholder="tenant@example.com"
-            value={form.tenant_email}
-            onChangeText={(t) => handleChange("tenant_email", t)}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            style={styles.input}
-            outlineColor={Colors.border}
-            activeOutlineColor={Colors.red}
-          />
+          {/* Render each tenant row */}
+          {(form.tenants || []).map((tenant, idx) => (
+            <View key={idx} style={styles.tenantCard}>
+              {/* Card header: Tenant #N + remove button */}
+              <View style={styles.tenantCardHeader}>
+                <Text style={styles.tenantCardTitle}>Tenant {idx + 1}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    const updated = form.tenants.filter((_, i) => i !== idx);
+                    handleChange('tenants', updated);
+                  }}
+                  style={styles.removeTenantBtn}
+                >
+                  <Text style={styles.removeTenantText}>✕ Remove</Text>
+                </TouchableOpacity>
+              </View>
 
-          <Text style={styles.subLabel}>Tenant Name</Text>
-          <TextInput
-            mode="outlined"
-            placeholder="Tenant Name"
-            value={form.tenant_name}
-            onChangeText={(t) => handleChange("tenant_name", t)}
-            style={styles.input}
-            outlineColor={Colors.border}
-            activeOutlineColor={Colors.red}
-          />
+              <Text style={styles.subLabel}>Tenant Name</Text>
+              <TextInput
+                mode="outlined"
+                placeholder="Tenant Name"
+                value={tenant.name}
+                onChangeText={(t) => {
+                  const updated = [...form.tenants];
+                  updated[idx] = { ...updated[idx], name: t };
+                  handleChange('tenants', updated);
+                }}
+                style={styles.input}
+                outlineColor={Colors.border}
+                activeOutlineColor={Colors.red}
+              />
+
+              <Text style={styles.subLabel}>Tenant Email</Text>
+              <TextInput
+                mode="outlined"
+                placeholder="tenant@example.com"
+                value={tenant.email}
+                onChangeText={(t) => {
+                  const updated = [...form.tenants];
+                  updated[idx] = { ...updated[idx], email: t };
+                  handleChange('tenants', updated);
+                }}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                style={styles.input}
+                outlineColor={Colors.border}
+                activeOutlineColor={Colors.red}
+              />
+            </View>
+          ))}
+
+          {/* Add Tenant button */}
+          <TouchableOpacity
+            style={styles.addTenantBtn}
+            onPress={() =>
+              handleChange('tenants', [
+                ...(form.tenants || []),
+                { tenant_id: '', name: '', email: '' },
+              ])
+            }
+          >
+            <Text style={styles.addTenantText}>+ Add Tenant</Text>
+          </TouchableOpacity>
 
           <View style={styles.infoRow}>
             <AppIcon name={icons.bellIcon} size={hp(2)} color="orange" />
@@ -497,7 +535,7 @@ const SelectModal = memo(({ visible, onClose, title, options, onSelect }) => (
 ));
 
 /* ========================================
-   ✅ FIXED: Helper — build edit-mode image array from
+    FIXED: Helper — build edit-mode image array from
    whatever shape the Redux property object has
    ======================================== */
 const extractImagesFromProperty = (propertyData) => {
@@ -519,19 +557,19 @@ const extractImagesFromProperty = (propertyData) => {
   // Priority 1: already-normalised image_urls (set by services.js normalizePropertyImages)
   if (Array.isArray(propertyData.image_urls) && propertyData.image_urls.length > 0) {
     const urls = propertyData.image_urls.map(toUrl).filter(Boolean);
-    if (urls.length > 0) { console.log('✅ Edit images from image_urls:', urls); return urls; }
+    if (urls.length > 0) { console.log('Edit images from image_urls:', urls); return urls; }
   }
 
   // Priority 2: media.photos_preview
   if (propertyData.media?.photos_preview?.length > 0) {
     const urls = propertyData.media.photos_preview.map(toUrl).filter(Boolean);
-    if (urls.length > 0) { console.log('✅ Edit images from photos_preview:', urls); return urls; }
+    if (urls.length > 0) { console.log('Edit images from photos_preview:', urls); return urls; }
   }
 
   // Priority 3: media.photos (S3 keys)
   if (propertyData.media?.photos?.length > 0) {
     const urls = propertyData.media.photos.map(toUrl).filter(Boolean);
-    if (urls.length > 0) { console.log('✅ Edit images from media.photos:', urls); return urls; }
+    if (urls.length > 0) { console.log('Edit images from media.photos:', urls); return urls; }
   }
 
   // Priority 4: images array
@@ -543,9 +581,11 @@ const extractImagesFromProperty = (propertyData) => {
     if (urls.length > 0) return urls;
   }
 
-  console.log('⚠️ No images found on property');
+  console.log(' No images found on property');
   return [];
 };
+
+
 
 /* ========================================
    MAIN COMPONENT
@@ -587,17 +627,27 @@ const AddPropertiesScreen = ({ onClose = () => {}, propertyData = null }) => {
               return acc;
             }, { ...initialForm.amenities })
           : (propertyData.amenities || { ...initialForm.amenities }),
-        availability_status: propertyData.availability === 'available' ? 'Available' : 'Occupied',
-        tenant_email: propertyData.tenants?.[0]?.email || "",
-        tenant_name: propertyData.tenants?.[0]?.name || "",
-        // ✅ FIXED: was incorrectly mapped to tenant email; now uses actual tenant id
-        tenant_id: propertyData.tenants?.[0]?.tenant_id ||
-                   propertyData.tenants?.[0]?.id ||
-                   propertyData.tenant_ids?.[0] || "",
+        //  FIXED: map all three backend availability values → valid UI status options
+        availability_status:
+          propertyData.availability === 'available' || propertyData.availability_status === 'Available'
+            ? 'Available'
+            : propertyData.availability === 'maintenance' || propertyData.availability_status === 'Under Maintenance'
+            ? 'Under Maintenance'
+            : 'Currently Occupied',
+
+        // Build tenants array from embedded tenant objects
+        tenants: Array.isArray(propertyData.tenants) && propertyData.tenants.length > 0
+          ? propertyData.tenants.map((t) => ({
+              tenant_id: t.tenant_id || t.id || '',
+              name:      t.tenant_name || t.name || '',
+              email:     t.email || t.tenant_email || '',
+            }))
+          : [],
       };
     }
     return initialForm;
   });
+  
 
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -612,6 +662,27 @@ const AddPropertiesScreen = ({ onClose = () => {}, propertyData = null }) => {
   const [statusModal, setStatusModal] = useState(false);
 
   useEffect(() => { setErrors({}); }, [step]);
+
+  // Re-sync tenants array if propertyData.tenants updates after mount (timing fix)
+  useEffect(() => {
+    if (!isEdit || !propertyData) return;
+    if (!Array.isArray(propertyData.tenants) || propertyData.tenants.length === 0) return;
+
+ console.log("FULL TENANTS DATA 👉", propertyData.tenants);
+    setForm((prev) => {
+      // Only update if the form tenants array is still empty
+      if (prev.tenants && prev.tenants.length > 0) return prev;
+      return {
+        ...prev,
+        tenants: propertyData.tenants.map((t) => ({
+          tenant_id: t.tenant_id || t.id || '',
+          name:      t.tenant_name || t.name || '',
+          email: t.tenant_email || t.email || '',  
+        })),
+      };
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyData?.tenants]);
 
   const handleChange = useCallback((key, value) => {
     setForm((prevForm) => ({ ...prevForm, [key]: value }));
@@ -690,8 +761,15 @@ const AddPropertiesScreen = ({ onClose = () => {}, propertyData = null }) => {
     }
     if (s === 3) {
       if (form.availability_status !== 'Available') {
-        if (!form.tenant_email.trim()) err.tenant_email = "Tenant email is required";
-        if (!form.tenant_name.trim()) err.tenant_name = "Tenant name is required";
+        const tenants = form.tenants || [];
+        if (tenants.length === 0) {
+          err.tenants = "At least one tenant is required";
+        } else {
+          tenants.forEach((t, i) => {
+            if (!t.name?.trim()) err[`tenant_name_${i}`] = `Tenant ${i + 1} name is required`;
+            if (!t.email?.trim()) err[`tenant_email_${i}`] = `Tenant ${i + 1} email is required`;
+          });
+        }
       }
     }
     return err;
@@ -721,7 +799,7 @@ const AddPropertiesScreen = ({ onClose = () => {}, propertyData = null }) => {
           Toast.show('Address not found. Please enter a valid address.');
         }
       } catch (geocodeError) {
-        console.warn('⚠️ Geocoding failed, allowing user to continue:', geocodeError.message);
+        console.warn('Geocoding failed, allowing user to continue:', geocodeError.message);
         Toast.show('Could not verify address, but you can continue.');
         setAddressVerified(true);
         setStep((s) => s + 1);
@@ -1044,5 +1122,56 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(255, 255, 255, 0.7)",
     shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
+  },
+
+  // ─── Multi-tenant styles ───────────────────────────────────
+  tenantCard: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    padding: wp(3),
+    marginBottom: hp(1.5),
+    backgroundColor: "#FAFAFA",
+  },
+  tenantCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: hp(1),
+  },
+  tenantCardTitle: {
+    fontSize: hp(1.8),
+    fontWeight: "600",
+    color: Colors.black,
+    fontFamily: getFontFamily('semiBold'),
+  },
+  removeTenantBtn: {
+    paddingHorizontal: wp(2),
+    paddingVertical: hp(0.4),
+    borderRadius: 6,
+    backgroundColor: "#FFEBEE",
+  },
+  removeTenantText: {
+    fontSize: hp(1.5),
+    color: Colors.red,
+    fontWeight: "600",
+    fontFamily: getFontFamily('semiBold'),
+  },
+  addTenantBtn: {
+    borderWidth: 1.5,
+    borderColor: Colors.red,
+    borderStyle: "dashed",
+    borderRadius: 8,
+    paddingVertical: hp(1.4),
+    alignItems: "center",
+    marginTop: hp(0.5),
+    marginBottom: hp(1.5),
+    backgroundColor: "#FFF8F8",
+  },
+  addTenantText: {
+    fontSize: hp(1.8),
+    color: Colors.red,
+    fontWeight: "600",
+    fontFamily: getFontFamily('semiBold'),
   },
 });

@@ -53,22 +53,14 @@ const getToken = (getState) => {
   );
 };
 
-/**
- * Determine if an API response body signals a logical failure even when
- * the HTTP status is 2xx (e.g. { message: "Failed to record denial", detail: "..." }).
- *
- * This is the KEY FIX for the "5 declined jobs" bug:
- *  - Backend returns HTTP 200 but body says it failed (Decimal serialization error).
- *  - Without this check the thunk fulfills, the job is optimistically added to
- *    declinedJobs in Redux, but the server never actually recorded the decline.
- *  - On the next getAllContractorJobs call the job comes back as active, yet
- *    localOnlyDeclines keeps the stale entry → count grows with every attempt.
- */
+
 const isBodyError = (data) => {
   if (!data) return false;
   const msg = (data.message || '').toLowerCase();
-  const hasDetail = !!data.detail; // e.g. "Object of type Decimal is not JSON serializable"
-  return hasDetail || msg.startsWith('failed') || msg.includes('error');
+  // Only treat as error if there's an explicit error string AND no ticket/job in response
+  const hasJobData = !!(data.ticket || data.job || data.ticket_id);
+  if (hasJobData) return false; // has real job data → definitely success
+  return msg.startsWith('failed') || msg.includes('error occurred') || msg === 'internal server error';
 };
 
 /**

@@ -6,7 +6,8 @@ import { heightPercentageToDP as hp, widthPercentageToDP as wp } from 'react-nat
 import Container from '../../components/Container/Container';
 import { getMaintenanceRequests } from '../../Redux/Maintenance/services';
 import { maintenanceSelectors } from '../../Redux/Maintenance/maintenanceSlice';
-import { Colors } from '../../Theme';
+import Colors from '../../Theme/Colors';
+import Fonts from '../../Theme/fonts';
 import { AppIcon } from '../../components/AppIcon';
 import { icons } from '../../Assets';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -38,7 +39,6 @@ const LandlordSupport = ({ navigation }) => {
   useEffect(() => {
     // ✅ Fetch maintenance requests for landlord
     if (token && landlord_id) {
-      console.log('📡 Fetching maintenance requests for landlord:', landlord_id);
       dispatch(getMaintenanceRequests({
         landlord_id: landlord_id,
         token: token,
@@ -57,37 +57,32 @@ const LandlordSupport = ({ navigation }) => {
 
     // ✅ Priority 1: Check contractor_assignment.state for COMPLETED
     if (item.contractor_assignment?.state?.toUpperCase() === 'COMPLETED') {
-      console.log('✅ Status: Resolved (from contractor_assignment.state)');
       return 'Resolved';
     }
 
     // ✅ Priority 2: Check main status field
     const mainStatus = item.status?.toLowerCase();
     if (mainStatus === 'completed' || mainStatus === 'closed' || mainStatus === 'resolved') {
-      console.log('✅ Status: Resolved (from status field)');
       return 'Resolved';
     }
 
     // ✅ Priority 3: Check for completion indicators
     if (item.completed_at || item.completion_notes) {
-      console.log('✅ Status: Resolved (from completion indicators)');
       return 'Resolved';
     }
 
     // ✅ Check for In Progress
     if (item.contractor_assignment?.state?.toUpperCase() === 'ACCEPTED' ||
         item.contractor_assignment?.state?.toUpperCase() === 'IN_PROGRESS') {
-      console.log('⏳ Status: In Progress');
       return 'In Progress';
     }
 
     // ✅ Check for New Request
     if (mainStatus === 'open' || mainStatus === 'new') {
-      console.log('🆕 Status: New Request');
       return 'New Request';
     }
 
-    console.log('⚠️ Status: Pending (default)');
+  
     return 'Pending';
   };
 
@@ -172,14 +167,6 @@ const LandlordSupport = ({ navigation }) => {
   
   const { inProgressInvoiceCount, totalMaintenanceCost } = calculateInvoiceMetrics();
 
-  console.log('📊 Landlord Dashboard Stats:', {
-    total: filteredRequests.length,
-    new: newRequestCount,
-    inProgress: inProgressCount,
-    completed: completedCount,
-    inProgressInvoices: inProgressInvoiceCount,
-    totalCost: totalMaintenanceCost,
-  });
   
    const formatCurrency = (amount) => {
     return `${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -335,7 +322,6 @@ const LandlordSupport = ({ navigation }) => {
   // ✅ Render Item Component with displayStatus
   const renderItem = ({ item }) => {
     const displayStatus = getDisplayStatus(item);
-    console.log('🎨 Rendering card for:', item.ticket_id, 'with status:', displayStatus);
     
     return (
       <LandlordSupportCard
@@ -399,15 +385,15 @@ const styles = StyleSheet.create({
     paddingBottom: hp(2),
   },
   headerTitle: {
-    fontSize: hp(2.6),
+    fontSize: wp(4.5),
     fontWeight: 'bold',
     color: Colors.black,
     marginLeft: 10,
-    fontFamily: getFontFamily('bold'),
+    fontFamily: Fonts.bold,
   },
 
   statusCard: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.backgroundColor,
     borderRadius: wp(4),
     padding: wp(5),
     marginBottom: hp(2),
@@ -426,20 +412,19 @@ const styles = StyleSheet.create({
     flex: 1
   },
   statusNumber: {
-    fontSize: hp(3),
-    fontWeight: 'bold',
-    fontFamily: getFontFamily('bold'),
+    fontSize: hp(2.5),
+    fontFamily: Fonts.bold,
     color: Colors.black
   },
   statusLabel: {
     fontSize: hp(1.4),
-    fontFamily: getFontFamily('regular'),
+    fontFamily: Fonts.regular,
     color: Colors.grey,
     marginTop: hp(0.5)
   },
-  // ✅ NEW: Payment Card Styles
+  // ✅ Payment Card Styles
   paymentCard: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.backgroundColor,
     borderRadius: wp(4),
     padding: wp(5),
     marginBottom: hp(2),
@@ -455,12 +440,12 @@ const styles = StyleSheet.create({
     marginBottom: hp(2),
     paddingBottom: hp(1.5),
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border || '#E5E5E5',
+    borderBottomColor: Colors.border,
   },
   paymentTitle: {
     fontSize: hp(2),
     fontWeight: '600',
-    fontFamily: getFontFamily('semibold'),
+    fontFamily: Fonts.semiBold,
     color: Colors.black,
     marginLeft: wp(2),
   },
@@ -473,7 +458,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.lightGrey || '#F8F9FA',
+    backgroundColor: Colors.lightGrey,
     padding: wp(3),
     borderRadius: wp(3),
   },
@@ -485,29 +470,27 @@ const styles = StyleSheet.create({
   },
   paymentNumber: {
     fontSize: hp(2.5),
-    fontWeight: 'bold',
-    fontFamily: getFontFamily('bold'),
+    fontFamily: Fonts.bold,
     color: Colors.black,
     marginBottom: hp(0.3),
   },
   paymentAmount: {
     fontSize: hp(2),
-    fontWeight: 'bold',
-    fontFamily: getFontFamily('bold'),
-    color: Colors.black || '#28A745',
+    fontFamily: Fonts.bold,
+    color: Colors.black,
     marginBottom: hp(0.3),
   },
   paymentLabel: {
     fontSize: hp(1.3),
-    fontFamily: getFontFamily('regular'),
-    color: Colors.grey,
+    fontFamily: Fonts.regular,
+    color: Colors.black,
     flexWrap: 'wrap',
   },
 
   totalTicketsTitle: {
     fontSize: hp(2),
     fontWeight: '600',
-    fontFamily: getFontFamily('semibold'),
+    fontFamily: Fonts.semiBold,
     color: Colors.black,
   },
   controls: {
@@ -521,7 +504,7 @@ const styles = StyleSheet.create({
     marginLeft: wp(2),
     fontSize: hp(2),
     fontWeight: '500',
-    fontFamily: getFontFamily('medium'),
+    fontFamily: Fonts.medium,
     color: Colors.black
   },
   filterBtn: {
@@ -533,10 +516,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp(3.5)
   },
   filterBtnText: {
-    color: Colors.white,
+    color: Colors.backgroundColor,
     marginLeft: wp(1.5),
     fontWeight: '600',
-    fontFamily: getFontFamily('semibold'),
+    fontFamily: Fonts.semiBold,
     fontSize: hp(1.75),
   },
   refreshBtn: {
@@ -557,7 +540,7 @@ const styles = StyleSheet.create({
   showMoreText: {
     color: Colors.black,
     fontWeight: '700',
-    fontFamily: getFontFamily('bold'),
+    fontFamily: Fonts.bold,
     fontSize: hp(1.75),
   },
   loadingContainer: {
@@ -569,7 +552,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: hp(1.25),
     fontSize: hp(1.75),
-    fontFamily: getFontFamily('regular'),
+    fontFamily: Fonts.regular,
     color: Colors.grey,
   },
   emptyContainer: {
@@ -581,13 +564,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: hp(2),
     fontWeight: '600',
-    fontFamily: getFontFamily('semibold'),
+    fontFamily: Fonts.semiBold,
     color: Colors.grey,
     marginTop: hp(2),
   },
   emptySubText: {
     fontSize: hp(1.75),
-    fontFamily: getFontFamily('regular'),
+    fontFamily: Fonts.regular,
     color: Colors.titleColor,
     marginTop: hp(1),
   },

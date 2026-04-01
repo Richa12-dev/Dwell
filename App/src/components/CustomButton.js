@@ -38,7 +38,7 @@ const CustomButton = (props) => {
         {
           justifyContent: props.align ? props.align : 'center',
           backgroundColor: getBackgroundColor(),
-          height: props.height ? props.height : hp(5.5),
+          height: props.height ? props.height : hp(6),
           borderRadius: props.notBorder ? 0 : 10,
           width: props.width ? props.width : '100%',
           paddingHorizontal: props.paddingHorizontal ? props.paddingHorizontal : wp(6),

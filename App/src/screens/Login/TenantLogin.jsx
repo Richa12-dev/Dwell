@@ -10,6 +10,7 @@ import {
     Image,
     ImageBackground,
     ScrollView,
+    KeyboardAvoidingView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import FlashMessage from 'react-native-flash-message';
@@ -90,6 +91,12 @@ locations={[0.3453, 0.7113]}
 
                 <StatusBar backgroundColor={Colors.black} barStyle="dark-content" />
                 <FlashMessage position="top" />
+                
+                 <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                >
 
                 <ScrollView
                     style={styles.scrollView}
@@ -144,13 +151,13 @@ locations={[0.3453, 0.7113]}
                                 outlineColor="#100d0dff"
                                 activeOutlineColor={Colors.black}
                                 theme={{ roundness: 8 }}
-  left={
-    <TextInput.Icon
-      icon={() => (
-        <AppIcon name={icons.email} height={hp(2.3)} width={hp(2.3)} />
-      )}
-    />
-  }/>
+                                left={
+                                <TextInput.Icon
+                                icon={() => (
+                                <AppIcon name={icons.email} height={hp(2.3)} width={hp(2.3)} />
+                                 )}
+                                 />
+                                 }/>
 
                             <TextInput
                                 label="Password"
@@ -215,6 +222,7 @@ right={
                         </View>
                     </View>
                 </ScrollView>
+                  </KeyboardAvoidingView>
             </LinearGradient>
         </ImageBackground>
     );

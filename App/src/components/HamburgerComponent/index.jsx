@@ -1,7 +1,13 @@
-import {useNavigation} from '@react-navigation/native'; 
-import {StatusBar} from 'native-base';
+import {useNavigation} from '@react-navigation/native';
 import React, {useEffect, useState} from 'react';
-import {BackHandler, Image, Text, TouchableOpacity, View} from 'react-native';
+import {
+  BackHandler,
+  Image,
+  StatusBar,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import Dialog from 'react-native-dialog';
 import Modal from 'react-native-modal';
 import {
@@ -17,6 +23,7 @@ import {Colors} from '../../Theme';
 import {getFontFamily} from '../../utils';
 import {AppIcon} from '../AppIcon';
 import HamburgerItem from '../DisbursalComponent';
+
 const CustomModal = ({
   isVisible,
   onCloseModal,
@@ -34,11 +41,11 @@ const CustomModal = ({
   const dispatch = useDispatch();
   const {token} = useSelector(loginDataSelectors.getData);
   const [showDialog, setShowDialog] = useState(false);
+
   const handledialog = () => {
     setShowDialog(true);
-
- 
   };
+
   const handleLogout = () => {
     dispatch(
       logout({
@@ -52,8 +59,8 @@ const CustomModal = ({
       'hardwareBackPress',
       () => {
         if (isVisible) {
-          onClose(); 
-          return true; 
+          onCloseModal();
+          return true;
         }
         return false;
       },
@@ -76,7 +83,6 @@ const CustomModal = ({
         style={{
           backgroundColor: '#edffe8',
           flex: 1,
-          // width: '80%',
           width: wp(80),
         }}>
         <View
@@ -87,7 +93,6 @@ const CustomModal = ({
             marginHorizontal: wp(4),
             alignItems: 'center',
           }}>
-          {/* <AppIcon name={icons.logo} size={wp(12)} /> */}
           <View>
             <Text
               style={{
@@ -98,16 +103,6 @@ const CustomModal = ({
               }}>
               THE DWELL
             </Text>
-            {/* <Text
-              style={{
-                fontSize: wp(3),
-                color: Colors.primary,
-                marginLeft: wp(5),
-                marginTop: wp(-1),
-                fontFamily: getFontFamily('medium'),
-              }}>
-              HFCL PARTNER APP
-            </Text> */}
           </View>
         </View>
 
@@ -118,7 +113,6 @@ const CustomModal = ({
                 title={item.title}
                 icon={item.icon}
                 rightIcon={item.rightIcon}
-                // icon={item.rightIcon}
                 hideBorderBottom={item.title === 'Settings'}
                 backgroundColor={
                   item.title === 'Settings' && changeColor
@@ -229,21 +223,6 @@ const CustomModal = ({
             )}
           </React.Fragment>
         ))}
-
-        {/* <View
-          style={{
-            justifyContent: 'center',
-            alignItems: 'center',
-            position: 'absolute',
-            bottom: 0,
-            width: '100%',
-          }}>
-          <Image
-            source={require('../../Assets/Image/leadGeneration/100_logo.png')}
-            style={{width: wp(40), height: wp(40)}}
-            resizeMode="contain"
-          />
-        </View> */}
       </View>
 
       <Dialog.Container visible={showDialog}>

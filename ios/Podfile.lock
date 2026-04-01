@@ -2276,7 +2276,7 @@ PODS:
     - Yoga
   - react-native-voice (3.2.4):
     - React-Core
-  - react-native-webview (13.16.0):
+  - react-native-webview (13.16.1):
     - boost
     - DoubleConversion
     - fast_float
@@ -3753,7 +3753,7 @@ SPEC CHECKSUMS:
   react-native-simple-toast: e3add86605446b2c4fb2f77884ef7040c36817d2
   react-native-slider: 87e189f6289e7ba87f0031f479249d91ba66a868
   react-native-voice: 908a0eba96c8c3d643e4f98b7232c6557d0a6f9c
-  react-native-webview: 654f794a7686b47491cf43aa67f7f428bea00eed
+  react-native-webview: 8407aaaf6b539b1e38b72fabb55d6885de03beaf
   React-NativeModulesApple: a2c3d2cbec893956a5b3e4060322db2984fff75b
   React-networking: 3f98bd96893a294376e7e03730947a08d474c380
   React-oscompat: 80166b66da22e7af7fad94474e9997bd52d4c8c6
@@ -3807,6 +3807,6 @@ SPEC CHECKSUMS:
   Toast: 1f5ea13423a1e6674c4abdac5be53587ae481c4e
   Yoga: 5456bb010373068fc92221140921b09d126b116e
 
-PODFILE CHECKSUM: 2f92ff068f82fae7dffbfad65e02929527694163
+PODFILE CHECKSUM: 42e9b0071439b7182204fa99820a47d05cddda33
 
 COCOAPODS: 1.16.2

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Platform,
@@ -17,9 +17,16 @@ import {
 import { getFontFamily } from '../../utils';
 import LinearGradient from 'react-native-linear-gradient';
 
+const ADMIN_TAP_COUNT = 5;      // Number of taps required
+const ADMIN_TAP_TIMEOUT = 3000; // Reset tap count if idle for 3 seconds
+
 const Login = ({ navigation }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const fadeAnim = useState(new Animated.Value(0))[0];
+
+  // --- Secret admin tap state ---
+  const tapCount = useRef(0);
+  const tapTimer = useRef(null);
 
   useEffect(() => {
     if (isLoaded) {
@@ -37,6 +44,30 @@ const Login = ({ navigation }) => {
     return () => clearTimeout(timer);
   }, [isLoaded, fadeAnim]);
 
+  // Clean up tap timer on unmount
+  useEffect(() => {
+    return () => {
+      if (tapTimer.current) clearTimeout(tapTimer.current);
+    };
+  }, []);
+
+  // Secret logo tap handler — 5 taps within 3 seconds → AdminLogin
+  const handleLogoTap = () => {
+    tapCount.current += 1;
+
+    // Reset the idle timer on each tap
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    tapTimer.current = setTimeout(() => {
+      tapCount.current = 0; // reset if user stops tapping
+    }, ADMIN_TAP_TIMEOUT);
+
+    if (tapCount.current >= ADMIN_TAP_COUNT) {
+      tapCount.current = 0;
+      clearTimeout(tapTimer.current);
+      navigation.navigate('AdminLogin');
+    }
+  };
+
   const handleLogin = () => {
     navigation.navigate('TenantLogin');
   };
@@ -46,23 +77,29 @@ const Login = ({ navigation }) => {
   };
 
   const handleLandlordLogin = () => {
-    navigation.navigate('LandlordLogin', { userType: 'landlord'});
+    navigation.navigate('LandlordLogin', { userType: 'landlord' });
   };
 
   const handleContractorLogin = () => {
     navigation.navigate('ContractorLogin', { userType: 'contractor' });
   };
 
-
   const handleRegister = () => {
     navigation.navigate('Register');
   };
+  
+    const handleOpenTerms = () => {
+    navigation.navigate('TermsAndConditions', { readOnly: true });
+  };
+  
+  const handleOpenPrivacy = () => {
+  navigation.navigate('PrivacyPolicy');
+};
 
   return (
     <View style={styles.container}>
       <StatusBar backgroundColor={'#000'} barStyle="light-content" />
 
-      {/* Background Image with gradient overlay */}
       <ImageBackground
         source={require('../../Assets/Image/dwellProperties/Maskgroup1.png')}
         style={styles.backgroundImage}
@@ -81,28 +118,29 @@ const Login = ({ navigation }) => {
           style={styles.gradientOverlay}
         />
 
-
-
-
-
         <Animated.View style={[styles.contentContainer, { opacity: fadeAnim }]}>
 
-          <View style={styles.logoContainer}>
+          {/* Logo — tap 5 times to access Admin Login */}
+          <TouchableOpacity
+            style={styles.logoContainer}
+            onPress={handleLogoTap}
+            activeOpacity={1}        // No visual feedback — keeps it truly hidden
+          >
             <Image
               source={require('../../Assets/Image/D.png')}
               style={styles.logo}
               resizeMode="contain"
             />
-          </View>
+          </TouchableOpacity>
 
           {/* Bottom Form Section */}
           <View style={styles.formContainer}>
             {/* Terms and Privacy Text */}
             <Text style={styles.termsText}>
               By continuing, you accept{'\n'}
-              <Text style={styles.boldLinkText}>Terms & Conditions</Text>
+              <Text style={styles.boldLinkText} onPress={handleOpenTerms}>Terms & Conditions</Text>
               {' and '}
-              <Text style={styles.boldLinkText}>Privacy Policy</Text>
+              <Text style={styles.boldLinkText}  onPress={handleOpenPrivacy}>Privacy Policy</Text>
             </Text>
 
             {/* Tenant Login Button */}
@@ -135,7 +173,8 @@ const Login = ({ navigation }) => {
             {/* Register Text */}
             <TouchableOpacity onPress={handleRegister} activeOpacity={0.7}>
               <Text style={styles.registerText}>
-                Don't have an account? <Text style={styles.registerLink}>Register Now</Text>
+                Don't have an account?{' '}
+                <Text style={styles.registerLink}>Register Now</Text>
               </Text>
             </TouchableOpacity>
           </View>

@@ -47,7 +47,6 @@ import {
 import { loginDataSelectors } from '../../Redux/Login/loginSlice';
 import { emitJobEvent, onJobEvent, JOB_EVENTS } from '../../utils/Jobeventbus';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
 
 const DECLINED_STATES = new Set(['DENIED', 'DECLINED', 'REJECTED']);
 
@@ -198,9 +197,11 @@ const ContractorSupport = ({ navigation, route }) => {
   const [invoicesMap,     setInvoicesMap]    = useState({});
   const [acceptingJobId,  setAcceptingJobId] = useState(null);
 
-  const expiredJobsRef = useRef(new Set());
-  const pendingPollRef = useRef(null); // interval ref for pending-job status checks
-  const appStateRef   = useRef(AppState.currentState);
+  const expiredJobsRef    = useRef(new Set());
+  const pendingPollRef    = useRef(null);
+  const appStateRef       = useRef(AppState.currentState);
+  // Track the ticket currently being accepted so polls/watchers ignore it
+  const acceptingJobIdRef = useRef(null);
 
   // ── Re-validate when app comes to foreground ────────────────────────────────
   useEffect(() => {
@@ -351,18 +352,14 @@ const ContractorSupport = ({ navigation, route }) => {
   }, [activeJobs.length]);
 
   // ── Listen for "another contractor accepted this job" events ────────────────
-  //
-  // When THIS contractor accepts a job, the emitJobEvent call in handleAcceptJob
-  // will trigger this listener on every OTHER device that has the same job open.
-  // On this device it is a no-op because markJobAcceptedByOther only acts when
-  // the job is still in pendingJobs / offeredJobs (after accepting, it has already
-  // been moved to jobs / removed from pending).
   useEffect(() => {
     const subscription = onJobEvent(JOB_EVENTS.JOB_ACCEPTED_BY_OTHER, ({ ticket_id }) => {
-      // Update Redux state — moves the job from pending → declined for this contractor
+      // Ignore if THIS device just accepted this job — emitJobEvent fires on
+      // the same process so DeviceEventEmitter delivers it here too.
+      if (acceptingJobIdRef.current === ticket_id) return;
+
       dispatch(markJobAcceptedByOther({ ticket_id }));
 
-      // If the modal is currently showing that exact job, close it gracefully
       setSelectedJob((prev) => {
         if (prev?.ticket_id === ticket_id) {
           setModalVisible(false);
@@ -403,21 +400,11 @@ const ContractorSupport = ({ navigation, route }) => {
   }, [dispatch]);
 
   // ── Per-pendingJob status check every 8s ────────────────────────────────────
-  //
-  // pendingJobs come from push notifications. getAllContractorJobs only returns
-  // jobs assigned to THIS contractor — so a pendingJob taken by another
-  // contractor will be ABSENT from that response (handled by slice reconcile).
-  //
-  // BUT: getContractorJob/:id is a direct ticket lookup that returns the job
-  // regardless of assignment. We use it to get a fast signal (within 8s) by
-  // checking if assigned_contractor_id is set and doesn't match our own ID.
-  // Our own ID is derived from any job we already own (accepted_by field).
   useEffect(() => {
     const interval = setInterval(async () => {
       const snapshot = pendingJobs || [];
       if (snapshot.length === 0) return;
 
-      // Derive this contractor's own ID from their accepted jobs
       const ownId = (jobs || [])
         .find((j) => j.contractor_assignment?.accepted_by)
         ?.contractor_assignment?.accepted_by ?? null;
@@ -428,6 +415,9 @@ const ContractorSupport = ({ navigation, route }) => {
         const tid = pJob.ticket_id;
         if (!tid || ownAcceptedIds.has(tid)) continue;
 
+        // Skip any job currently being accepted on this device
+        if (acceptingJobIdRef.current === tid) continue;
+
         try {
           const result = await dispatch(
             getContractorJob({ ticket_id: tid }),
@@ -436,13 +426,13 @@ const ContractorSupport = ({ navigation, route }) => {
           const assignedTo = result?.assigned_contractor_id
             || result?.contractor_assignment?.accepted_by;
 
-          // If the job is now assigned to someone else → mark declined immediately
+          // Only flag as taken-by-other when we KNOW our own ID and it doesn't match
           if (assignedTo && ownId && assignedTo !== ownId) {
             dispatch(markJobAcceptedByOther({ ticket_id: tid }));
           }
         } catch {
-          // 404 or network error — job may no longer exist, slice will clean up
-          // on the next getAllContractorJobs poll
+          // 404 or network error — leave the job in pendingJobs;
+          // the next getAllContractorJobs poll will reconcile if needed
         }
       }
     }, 8_000);
@@ -451,13 +441,14 @@ const ContractorSupport = ({ navigation, route }) => {
   }, [pendingJobs, jobs, dispatch]);
 
   // ── Close modal if selected job was just moved to declined ──────────────────
-  //
-  // The slice handles all state transitions (pendingJobs → declinedJobs) inside
-  // getOfferedJobs.fulfilled and getAllContractorJobs.fulfilled.
-  // This effect just watches declinedJobs and closes the modal gracefully if the
-  // currently-open job was just declined (accepted by another contractor).
   useEffect(() => {
     if (!selectedJob || !modalVisible) return;
+
+    // Do NOT close the modal while we are in the middle of accepting this job.
+    // The accept flow: pendingJob → briefly absent from pendingJobs before
+    // getAllContractorJobs fires → could trigger this watcher prematurely.
+    if (acceptingJobIdRef.current === selectedJob.ticket_id) return;
+
     const wasDeclined = (declinedJobs || []).some(
       (j) => j.ticket_id === selectedJob.ticket_id,
     );
@@ -537,6 +528,7 @@ const ContractorSupport = ({ navigation, route }) => {
 
     try {
       setAcceptingJobId(ticketId);
+      acceptingJobIdRef.current = ticketId; // block polls/watchers for this job
 
       const result = await dispatch(
         acceptContractorJob({ ticket_id: ticketId }),
@@ -553,27 +545,27 @@ const ContractorSupport = ({ navigation, route }) => {
       );
       dispatch(removePendingJob({ ticket_id: ticketId }));
 
-      // 🔔 Broadcast to all other contractors who have this job open:
-      // their timer should stop and the job should move to Declined.
+      // 🔔 Broadcast to OTHER contractor devices that have this job open.
+      // The listener on THIS device checks acceptingJobIdRef and ignores it.
       emitJobEvent(JOB_EVENTS.JOB_ACCEPTED_BY_OTHER, { ticket_id: ticketId });
 
       await dispatch(getAllContractorJobs(DEFAULT_FILTERS));
 
       setModalVisible(false);
       setAcceptingJobId(null);
+      acceptingJobIdRef.current = null;
       Toast.show('Job accepted! You can now create an invoice.');
     } catch (error) {
       setAcceptingJobId(null);
+      acceptingJobIdRef.current = null;
       const msg = error?.message || error?.toString() || '';
 
-      if (
+      const takenByOther =
         msg.includes('already assigned') ||
         msg.includes('ConditionalCheckFailed') ||
-        msg.includes('cannot be accepted')
-      ) {
-        // Move card to Declined state immediately — do NOT just remove it.
-        // markJobAcceptedByOther moves the job from pending/offered → declinedJobs
-        // so the card stays visible with a "Declined" badge.
+        msg.includes('already accepted');
+
+      if (takenByOther) {
         dispatch(markJobAcceptedByOther({ ticket_id: ticketId }));
         setModalVisible(false);
         Toast.show('This job was already accepted by another contractor.');

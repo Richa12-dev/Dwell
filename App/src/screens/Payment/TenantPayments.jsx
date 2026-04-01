@@ -75,7 +75,7 @@ const TenantPayments = () => {
           />
           <QuickLink
             icon={icons.RentHistory}
-            label="Rent History"
+            label={"Rent" + "\n" + "History"}
             onPress={() => navigation.navigate("RentHistory")}
           />
           <QuickLink

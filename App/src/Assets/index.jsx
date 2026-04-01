@@ -96,7 +96,7 @@ maintenance,
 pauseCircle,
 playCircle,
 redMessages,
-
+arrowRight,
 
 } from './svg/icon';
 
@@ -198,5 +198,6 @@ maintenance,
 pauseCircle,
 playCircle,
 redMessages,
+arrowRight,
 
 };

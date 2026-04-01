@@ -138,7 +138,7 @@ const chartConfig = {
       action: () => navigation.navigate("Leaderboard"),
     },
     {
-      title: "Leader board",
+      title: "Leader" +"\n" + "board",
       icon: icons.leaderBoard,
       
       action: () => navigation.navigate("PaymentLedger"),

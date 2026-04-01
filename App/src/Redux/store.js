@@ -13,6 +13,7 @@ import contractorReducer from './ContractorServices/contractorSlice';
 
 import notificationReducer from './NotificationServices/notificationSlice';
 import { rentReducer } from './Rent/rentSlice';
+import mainChatbotReducer from './MainChatbot/mainChatbotSlice';
 
 const persistConfig = {
   key: '@studyApp',
@@ -57,6 +58,7 @@ const rootReducer = combineReducers({
     contractor: contractorReducer,
     notifications: notificationReducer,
     rent: rentReducer,
+    mainChatbot: mainChatbotReducer,
 
 
 });

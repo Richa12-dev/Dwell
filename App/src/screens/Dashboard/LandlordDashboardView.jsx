@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useCallback, useState } from 'react';
-import { RefreshControl, FlatList, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
+import { RefreshControl, FlatList, StyleSheet, TouchableOpacity, View, Text, ActivityIndicator, Animated } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import Toast from 'react-native-simple-toast';
-import { Box, VStack, HStack, Button, Badge, Spinner, Pressable } from 'native-base';
 import Modal from 'react-native-modal';
 import { Colors } from '../../Theme';
 import { getLandlordProperties, deleteProperty } from '../../Redux/Properties/services';
@@ -102,21 +101,16 @@ const LandlordDashboardView = () => {
       Toast.show('Please login again');
       return;
     }
-    
+
     const propertyId = property?.property_id || property?.propertyId || property?.id || property?.ID;
-    
+
     if (!propertyId) {
       Toast.show('Invalid property ID');
       return;
     }
 
     try {
-      await dispatch(deleteProperty({
-        propertyId,
-        token: authToken,
-        landlordId
-      })).unwrap();
-      
+      await dispatch(deleteProperty({ propertyId, token: authToken, landlordId })).unwrap();
       Toast.show('Property deleted successfully');
       handleRefresh();
     } catch (err) {
@@ -127,29 +121,12 @@ const LandlordDashboardView = () => {
   const handleToggleFavorite = id => {
     setFavorites(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
-  
-  const quickLinks = [
-    {
-      title: "Add New Property",
-      icon: icons.newProperites,
-      action: () => handleAddProperty(),
 
-    },
-    {
-      title: "Tenant Management",
-      icon: icons.TenantManagement,
-      action: () => navigation.navigate("TenantManagement"),
-    },
-    {
-      title: "Rent Collection",
-      icon: icons.rentCollection,
-      action: () => navigation.navigate("RentCollection"),
-    },
-    {
-      title: "Maintenance Request",
-      icon: icons.mantenanceRequest,
-      action: () => navigation.navigate("LandlordSupport"),
-    },
+  const quickLinks = [
+    { title: "Add New Property", icon: icons.newProperites, action: () => handleAddProperty() },
+    { title: "Tenant Management", icon: icons.TenantManagement, action: () => navigation.navigate("TenantManagement") },
+    { title: "Rent Collection", icon: icons.rentCollection, action: () => navigation.navigate("RentCollection") },
+    { title: "Maintenance Request", icon: icons.mantenanceRequest, action: () => navigation.navigate("LandlordSupport") },
   ];
 
   const handleTenantPress = (tenant) => {
@@ -164,7 +141,7 @@ const LandlordDashboardView = () => {
       return acc;
     }, {});
   }, [landlordProperties]);
-  
+
   const isPropertyAvailable = (p) => {
     const availability = (p?.availability || '').toLowerCase();
     if (availability === "available") return true;
@@ -173,9 +150,7 @@ const LandlordDashboardView = () => {
   };
 
   const availabilityCounts = useMemo(() => {
-    const vacant = landlordProperties.filter(
-      p => isPropertyAvailable(p)
-    ).length;
+    const vacant = landlordProperties.filter(p => isPropertyAvailable(p)).length;
     const occupied = landlordProperties.length - vacant;
     return { vacant, occupied };
   }, [landlordProperties]);
@@ -193,92 +168,80 @@ const LandlordDashboardView = () => {
       const propType = (prop?.property_type || '').toLowerCase();
       const selectedType = (selectedPropertyType || 'all').toLowerCase();
       const typeMatch = selectedType === 'all' || propType === selectedType;
-
       const isAvailable = isPropertyAvailable(prop);
-
       const availMatch =
         selectedAvailability === 'all' ||
         (selectedAvailability === 'vacant' && isAvailable) ||
         (selectedAvailability === 'occupied' && !isAvailable);
-
       return typeMatch && availMatch;
     });
-
     return filtered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   }, [landlordProperties, selectedPropertyType, selectedAvailability]);
 
-
-const formattedTenants = useMemo(() => {
-  // If you have a separate tenants array from API, use it
-  if (tenants && tenants.length > 0) {
-    return tenants.map(tenant => ({
-      tenant_id: tenant?.tenant_id || tenant?.id,
-      tenant_name: tenant?.name || tenant?.tenant_name ||
-                   `${tenant?.firstName || ''} ${tenant?.lastName || ''}`.trim(),
-      property_address: tenant?.address || tenant?.property_address ||
-                       tenant?.property?.address || 'No address',
-      payment_status: tenant?.status || tenant?.payment_status || 'Pending',
-      avatar: tenant?.avatar || tenant?.profile_image || tenant?.photo || null,
-    }));
-  }
-
-  // Fallback: Extract tenants from properties if no separate tenants data
-  const extractedTenants = [];
-  landlordProperties.forEach(property => {
-    if (property.tenant_ids && property.tenant_ids.length > 0) {
-      property.tenant_ids.forEach((tenantId, index) => {
-        const tenantName = property.tenant_names?.[index] || 'Unknown Tenant';
-        const address = [
-          property.street,
-          property.city,
-          property.state,
-          property.zipcode
-        ].filter(Boolean).join(', ') || 'No address';
-
-        extractedTenants.push({
-          tenant_id: tenantId,
-          tenant_name: tenantName,
-          property_address: address,
-          payment_status: property.availability === 'occupied' ? 'Paid' : 'Pending',
-          avatar: null,
-        });
-      });
+  const formattedTenants = useMemo(() => {
+    if (tenants && tenants.length > 0) {
+      return tenants.map(tenant => ({
+        tenant_id: tenant?.tenant_id || tenant?.id,
+        tenant_name: tenant?.name || tenant?.tenant_name ||
+          `${tenant?.firstName || ''} ${tenant?.lastName || ''}`.trim(),
+        property_address: tenant?.address || tenant?.property_address ||
+          tenant?.property?.address || 'No address',
+        payment_status: tenant?.status || tenant?.payment_status || 'Pending',
+        avatar: tenant?.avatar || tenant?.profile_image || tenant?.photo || null,
+      }));
     }
-  });
 
-  return extractedTenants;
-}, [tenants, landlordProperties]);
+    const extractedTenants = [];
+    landlordProperties.forEach(property => {
+      if (property.tenant_ids && property.tenant_ids.length > 0) {
+        property.tenant_ids.forEach((tenantId, index) => {
+          const tenantName = property.tenant_names?.[index] || 'Unknown Tenant';
+          const address = [property.street, property.city, property.state, property.zipcode]
+            .filter(Boolean).join(', ') || 'No address';
+          extractedTenants.push({
+            tenant_id: tenantId,
+            tenant_name: tenantName,
+            property_address: address,
+            payment_status: property.availability === 'occupied' ? 'Paid' : 'Pending',
+            avatar: null,
+          });
+        });
+      }
+    });
+    return extractedTenants;
+  }, [tenants, landlordProperties]);
 
-// Update the filteredTenants useMemo to use formattedTenants
-const filteredTenants = useMemo(() => {
-  if (selectedTenantStatus === 'all') return formattedTenants;
-  return formattedTenants.filter(tenant => {
-    const tenantStatus = (tenant?.payment_status || 'pending').toLowerCase();
-    return tenantStatus === selectedTenantStatus.toLowerCase();
-  });
-}, [selectedTenantStatus, formattedTenants]);
+  const filteredTenants = useMemo(() => {
+    if (selectedTenantStatus === 'all') return formattedTenants;
+    return formattedTenants.filter(tenant => {
+      const tenantStatus = (tenant?.payment_status || 'pending').toLowerCase();
+      return tenantStatus === selectedTenantStatus.toLowerCase();
+    });
+  }, [selectedTenantStatus, formattedTenants]);
+
   const currentLoading = activeTab === 'properties' ? loading : tenantsLoading;
-  const hasData = activeTab === 'properties' ? hasProperties : hasTenants;
 
-  // Authentication Required (only show if not authenticated)
+  // Authentication Required
   if (!isAuthenticated) {
     return (
       <Container>
-        <Box flex={1} justifyContent="center" alignItems="center" px={6}>
+        <View style={styles.centerContainer}>
           <MaterialIcons name="lock-outline" size={64} color="#E53935" />
           <Text style={styles.errorTitle}>Authentication Required</Text>
           <Text style={styles.errorSubtitle}>
             Please login to view your {activeTab}
           </Text>
-          <Button mt={6} bg="#E53935" onPress={() => navigation.navigate('Login')} px={8}>
-            Login
-          </Button>
-        </Box>
+          <TouchableOpacity
+            style={styles.loginBtn}
+            onPress={() => navigation.navigate('Login')}
+          >
+            <Text style={styles.loginBtnText}>Login</Text>
+          </TouchableOpacity>
+        </View>
       </Container>
     );
   }
 
-  // Always render the main content - no full-screen loaders
   return (
     <View style={{ flex: 1 }}>
       <Container scroll={false}>
@@ -290,7 +253,7 @@ const filteredTenants = useMemo(() => {
             }
             return String(item?.tenant_id || item?.id || item?.ID || index);
           }}
-          renderItem={({ item }) => (
+          renderItem={({ item }) =>
             activeTab === 'properties' ? (
               <PropertyCard
                 property={item}
@@ -301,12 +264,9 @@ const filteredTenants = useMemo(() => {
                 isFavorite={favorites.includes(item?.property_id || item?.propertyId || item?.id || item?.ID)}
               />
             ) : (
-              <TenantCard
-                tenant={item}
-                onPress={() => handleTenantPress(item)}
-              />
+              <TenantCard tenant={item} onPress={() => handleTenantPress(item)} />
             )
-          )}
+          }
           refreshControl={
             <RefreshControl
               refreshing={currentLoading}
@@ -317,17 +277,13 @@ const filteredTenants = useMemo(() => {
           }
           contentContainerStyle={styles.listContainer}
           ListHeaderComponent={
-            <VStack space={4} mb={4}>
+            <View style={styles.headerContainer}>
               {/* Quick Links */}
               <View style={styles.quickLinksContainer}>
                 <Text style={styles.sectionTitle}>Quick Links</Text>
                 <View style={styles.quickLinksRow}>
                   {quickLinks.map((item, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.linkCard}
-                      onPress={item.action}
-                    >
+                    <TouchableOpacity key={index} style={styles.linkCard} onPress={item.action}>
                       <View style={styles.iconCircle}>
                         <AppIcon name={item.icon} size={wp(8)} />
                       </View>
@@ -346,67 +302,42 @@ const filteredTenants = useMemo(() => {
                 vacantCount={availabilityCounts.vacant}
                 occupiedCount={availabilityCounts.occupied}
               />
-              
-              {/* Tab Switcher */}
-              <Box
-                width={370}
-                height={50}
-                borderRadius={100}
-                borderWidth={1}
-                borderColor="rgba(255,255,255,0.3)"
-                bg="rgba(255,255,255,0.7)"
-                flexDirection="row"
-                alignSelf="center"
-                overflow="hidden"
-                mb={4}
-              >
-                <Box
-                  position="absolute"
-                  top={0}
-                  left={activeTab === 'properties' ? 0 : '50%'}
-                  width="50%"
-                  height="100%"
-                  bg="#E53935"
-                  borderRadius={100}
-                />
 
+              {/* Tab Switcher */}
+              <View style={styles.tabSwitcher}>
+                {/* Sliding background */}
+                <View
+                  style={[
+                    styles.tabSlider,
+                    { left: activeTab === 'properties' ? 0 : '50%' },
+                  ]}
+                />
                 {[
                   { key: 'properties', label: 'Properties', count: totalProperties || landlordProperties.length },
                   { key: 'tenants', label: 'Tenants', count: totalTenants || tenants.length },
                 ].map(tab => {
                   const isActive = activeTab === tab.key;
                   return (
-                    <Pressable
+                    <TouchableOpacity
                       key={tab.key}
-                      flex={1}
+                      style={styles.tabItem}
                       onPress={() => setActiveTab(tab.key)}
-                      style={{ justifyContent: 'center', alignItems: 'center' }}
+                      activeOpacity={0.8}
                     >
-                      <HStack alignItems="center" space={1}>
-                        <Text
-                          fontSize="sm"
-                          fontWeight="600"
-                          color={isActive ? "white" : "gray.600"}
-                        >
+                      <View style={styles.tabInner}>
+                        <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
                           {tab.label}
                         </Text>
-                        <Badge
-                          bg={isActive ? "white" : "gray.300"}
-                          rounded="full"
-                          px={3}
-                          _text={{
-                            fontSize: "xs",
-                            fontWeight: "bold",
-                            color: isActive ? "#E53935" : "gray.600"
-                          }}
-                        >
-                          {tab.count}
-                        </Badge>
-                      </HStack>
-                    </Pressable>
+                        <View style={[styles.tabBadge, isActive ? styles.tabBadgeActive : styles.tabBadgeInactive]}>
+                          <Text style={[styles.tabBadgeText, isActive ? styles.tabBadgeTextActive : styles.tabBadgeTextInactive]}>
+                            {tab.count}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
                   );
                 })}
-              </Box>
+              </View>
 
               {/* Filters */}
               <PropertyFilters
@@ -422,20 +353,18 @@ const filteredTenants = useMemo(() => {
                 onTenantStatusChange={setSelectedTenantStatus}
                 tenantStatusCounts={tenantStatusCounts}
               />
-            </VStack>
+            </View>
           }
           ListEmptyComponent={
-            <Box alignItems="center" justifyContent="center" py={10}>
+            <View style={styles.emptyContainer}>
               {currentLoading ? (
-                // Show loading state in empty component
                 <>
-                  <Spinner color="#E53935" size="lg" />
+                  <ActivityIndicator color="#E53935" size="large" />
                   <Text style={styles.loadingText}>
                     Loading {activeTab === 'properties' ? 'properties' : 'tenants'}...
                   </Text>
                 </>
               ) : (
-                // Show empty state
                 <>
                   <MaterialIcons
                     name={activeTab === 'properties' ? 'home-work' : 'people-outline'}
@@ -456,41 +385,34 @@ const filteredTenants = useMemo(() => {
                     }
                   </Text>
                   {activeTab === 'properties' &&
-                   (selectedPropertyType !== 'all' || selectedAvailability !== 'all') && (
-                    <Button
-                      mt={4}
-                      bg="#E53935"
-                      onPress={() => {
-                        setSelectedPropertyType('all');
-                        setSelectedAvailability('all');
-                      }}
-                      _text={{ fontSize: "sm", fontWeight: "600" }}
-                    >
-                      Clear Filters
-                    </Button>
-                  )}
+                    (selectedPropertyType !== 'all' || selectedAvailability !== 'all') && (
+                      <TouchableOpacity
+                        style={styles.clearFiltersBtn}
+                        onPress={() => {
+                          setSelectedPropertyType('all');
+                          setSelectedAvailability('all');
+                        }}
+                      >
+                        <Text style={styles.clearFiltersBtnText}>Clear Filters</Text>
+                      </TouchableOpacity>
+                    )}
                   {activeTab === 'tenants' && selectedTenantStatus !== 'all' && (
-                    <Button
-                      mt={4}
-                      bg="#E53935"
+                    <TouchableOpacity
+                      style={styles.clearFiltersBtn}
                       onPress={() => setSelectedTenantStatus('all')}
-                      _text={{ fontSize: "sm", fontWeight: "600" }}
                     >
-                      Clear Filters
-                    </Button>
+                      <Text style={styles.clearFiltersBtnText}>Clear Filters</Text>
+                    </TouchableOpacity>
                   )}
                 </>
               )}
-            </Box>
+            </View>
           }
         />
       </Container>
 
       {activeTab === 'properties' && (
-        <TouchableOpacity
-          style={styles.fabButton}
-          onPress={handleAddProperty}
-        >
+        <TouchableOpacity style={styles.fabButton} onPress={handleAddProperty}>
           <Text style={styles.fabText}>+</Text>
         </TouchableOpacity>
       )}
@@ -503,10 +425,7 @@ const filteredTenants = useMemo(() => {
         animationOut="slideOutRight"
         backdropOpacity={0.5}
       >
-        <AddPropertiesScreen
-          onClose={handleCloseModal}
-          propertyData={editPropertyData}
-        />
+        <AddPropertiesScreen onClose={handleCloseModal} propertyData={editPropertyData} />
       </Modal>
     </View>
   );
@@ -514,10 +433,11 @@ const filteredTenants = useMemo(() => {
 
 const styles = StyleSheet.create({
   listContainer: {
-   // paddingTop: hp(2),
     paddingBottom: hp(12),
     paddingHorizontal: 16,
-    
+  },
+  headerContainer: {
+    marginBottom: 16,
   },
   quickLinksContainer: {
     marginTop: hp(1),
@@ -525,7 +445,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: wp(4.5),
-    fontFamily: getFontFamily("bold"),
+    fontWeight: "bold",
+    fontFamily: getFontFamily("Semibold"),
     color: Colors.black,
     marginBottom: hp(0.5),
   },
@@ -551,12 +472,141 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
+    borderColor: Colors.lightRed,
+    borderWidth: 1.5,
   },
   linkText: {
     fontSize: wp(3),
     fontFamily: getFontFamily("medium"),
     textAlign: "center",
     color: Colors.black,
+  },
+  // Tab Switcher
+  tabSwitcher: {
+    width: 370,
+    height: 50,
+    borderRadius: 100,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    backgroundColor: "rgba(255,255,255,0.7)",
+    flexDirection: "row",
+    alignSelf: "center",
+    overflow: "hidden",
+    marginBottom: 16,
+    position: "relative",
+  },
+  tabSlider: {
+    position: "absolute",
+    top: 0,
+    width: "50%",
+    height: "100%",
+    backgroundColor: "#E53935",
+    borderRadius: 100,
+  },
+  tabItem: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1,
+  },
+  tabInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  tabLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#4B5563",
+  },
+  tabLabelActive: {
+    color: "#FFFFFF",
+  },
+  tabBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+  },
+  tabBadgeActive: {
+    backgroundColor: "#FFFFFF",
+  },
+  tabBadgeInactive: {
+    backgroundColor: "#D1D5DB",
+  },
+  tabBadgeText: {
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  tabBadgeTextActive: {
+    color: "#E53935",
+  },
+  tabBadgeTextInactive: {
+    color: "#4B5563",
+  },
+  // Auth / Empty / Loading
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: hp(10),
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorTitle: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  errorSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  loginBtn: {
+    marginTop: 24,
+    backgroundColor: "#E53935",
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  loginBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    color: '#666',
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 40,
+  },
+  clearFiltersBtn: {
+    marginTop: 16,
+    backgroundColor: "#E53935",
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  clearFiltersBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
   },
   fabButton: {
     position: 'absolute',
@@ -577,35 +627,6 @@ const styles = StyleSheet.create({
   fabText: {
     color: 'white',
     fontSize: 28,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-  },
-  errorTitle: {
-    marginTop: 16,
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  errorSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  emptyTitle: {
-    fontSize: 18,
-    color: '#666',
-    marginTop: 16,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 8,
-    textAlign: 'center',
-    paddingHorizontal: 40,
   },
 });
 

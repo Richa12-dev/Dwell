@@ -190,7 +190,7 @@ export default LandlordSupportCard;
 
 const styles = StyleSheet.create({
   cardContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.backgroundColor,
     borderRadius: wp(4),
     padding: wp(4),
     marginBottom: hp(1.5),
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
-    elevation: 2
+    elevation: 2,
   },
   cardHeader: {
     flexDirection: 'row',

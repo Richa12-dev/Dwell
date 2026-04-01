@@ -1,23 +1,13 @@
 import GenericIcon from './GenericIcon';
-// import {HelperService} from '../commonFunction/HelperService';
-// import { ApplicationStyles, Colors } from 'App/Theme';
 import moment from 'moment';
-import {Text} from 'native-base';
 import PropTypes from 'prop-types';
 import React, {Component} from 'react';
-import {Modal, StyleSheet, TouchableOpacity, View} from 'react-native';
+import {Modal, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import CalendarPicker from 'react-native-calendar-picker';
 import {heightPercentageToDP as hp} from 'react-native-responsive-screen';
 import {Colors} from '../Theme';
 import {getFontFamily} from '../utils';
 
-//HOW TO CALL THIS COMPONENT:
-//<DatePicker
-//   allowRangeSelection={true}
-//   selectedStartDate={(new Date()).getTime()}
-//   selectedEndDate={(new Date()).getTime()}
-//   onDateChange={(params) => console.log(params)}
-// />
 
 export default class IconDatePicker extends Component {
   constructor(props) {
@@ -63,7 +53,6 @@ export default class IconDatePicker extends Component {
 
   onSubmit() {
     const {iconStyle, allowRangeSelection, onDateChange} = this.props;
-
     const {selectedStartDate, selectedEndDate} = this.state;
 
     if (allowRangeSelection) {
@@ -71,7 +60,8 @@ export default class IconDatePicker extends Component {
         onDateChange({
           selectedStartDate:
             selectedStartDate.unix() * 1000 + 5.5 * 60 * 60 * 1000,
-          selectedEndDate: selectedEndDate.unix() * 1000 + 5.5 * 60 * 60 * 1000,
+          selectedEndDate:
+            selectedEndDate.unix() * 1000 + 5.5 * 60 * 60 * 1000,
         });
         this.toggleCalender();
       } else {
@@ -95,24 +85,12 @@ export default class IconDatePicker extends Component {
     console.log(timestamp);
     let dateObj = timestamp ? new Date(timestamp) : new Date();
     const monthNames = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
 
-    // let dateObj = new Date(timestamp);
     let date = dateObj.getDate();
     let month = dateObj.getMonth();
-    console.log(month, 'hhh');
     let year = dateObj.getFullYear();
     date = date < 10 ? '0' + date : date;
 
@@ -127,13 +105,10 @@ export default class IconDatePicker extends Component {
     date = date < 10 ? '0' + date : date;
     month = month < 10 ? '0' + month : month;
     return `${date}-${month}-${year}`;
-
-    // return `${year}-${month}-${date}`;
   }
 
   render() {
     const {selectedStartDate, selectedEndDate} = this.state;
-    // console.log('selectedStartDate', selectedStartDate);
 
     const {iconStyle, allowRangeSelection, children, minDate, label, maxDate} =
       this.props;
@@ -142,6 +117,7 @@ export default class IconDatePicker extends Component {
       ? this.dateReadableFormat2(selectedStartDate)
       : '';
     const endDate = selectedEndDate ? selectedEndDate.toString() : '';
+
     let toggleNode = (
       <GenericIcon
         name={'calendar-month-outline'}
@@ -149,26 +125,23 @@ export default class IconDatePicker extends Component {
           ...Style.icon,
           ...Style.iconActive,
           ...iconStyle,
-
           fontSize: hp(3),
         }}
-        // style={{...Style.icon, ...Style.iconActive, ...iconStyle}}
         show={true}
       />
     );
     if (children) {
       toggleNode = children;
     }
+
     return (
       <View style={{height: hp(6), backgroundColor: 'transparent'}}>
-        {/*  */}
         <View
           style={{
             flexDirection: 'row',
             alignSelf: 'center',
             justifyContent: 'space-between',
             alignItems: 'center',
-
             borderRadius: 6,
             borderWidth: 1,
             borderColor: 'transparent',
@@ -191,19 +164,16 @@ export default class IconDatePicker extends Component {
                     allowRangeSelection={allowRangeSelection}
                     todayBackgroundColor={Colors.primary}
                     selectedDayTextColor={'white'}
-                    // selectedDayColor={Colors.button}
                     selectedStartDate={selectedStartDate}
                     selectedEndDate={selectedEndDate}
                     monthTitleStyle={Style.headerTextstyle}
                     yearTitleStyle={Style.headerTextstyle}
                     previousTitleStyle={Style.headerTextstyle}
                     nextTitleStyle={Style.headerTextstyle}
-                    // selectedDayTextColor={Colors.white}
                     onDateChange={this.onDateChange}
                     minDate={minDate ? moment(minDate) : ''}
                     maxDate={maxDate ? moment(maxDate) : ''}
                     textStyle={{
-                      // fontFamily: ApplicationStyles.textFont,
                       fontSize: 13,
                       fontFamily: getFontFamily('medium'),
                     }}
@@ -233,12 +203,13 @@ export default class IconDatePicker extends Component {
 }
 
 IconDatePicker.propTypes = {
-  allowRangeSelection: PropTypes.bool, //flag to allow range selection or not
-  selectedStartDate: PropTypes.number, //unix timestamp in milliseconds
-  selectedEndDate: PropTypes.number, //unix timestamp in milliseconds
-  styles: PropTypes.object, //custom styles for icon
-  onDateChange: PropTypes.func, //custom styles for icon
+  allowRangeSelection: PropTypes.bool,
+  selectedStartDate: PropTypes.number,
+  selectedEndDate: PropTypes.number,
+  styles: PropTypes.object,
+  onDateChange: PropTypes.func,
 };
+
 const Style = StyleSheet.create({
   container: {
     flex: 1,
@@ -250,44 +221,31 @@ const Style = StyleSheet.create({
     backgroundColor: 'rgba(23,65,53,.8)',
   },
   calenderContainer: {
-    // flex: 0.5,
     backgroundColor: 'rgba(255,255,255,1)',
     borderRadius: 5,
     elevation: 10,
-
     alignItems: 'center',
     width: '100%',
     paddingBottom: 20,
-
-    // marginHorizontal:'5%'
   },
   action: {
     flexDirection: 'row',
     justifyContent: 'center',
   },
   actionText: {
-    // fontFamily: ApplicationStyles.textMsgFont,
     marginLeft: 60,
     marginRight: 60,
     marginTop: 30,
     fontSize: 17,
     fontFamily: getFontFamily('medium'),
     color: Colors.primary,
-    // color: Colors.button,
   },
   button: {
-    // ...Metrics.smallBottomMargin,
     width: 120,
   },
-  icon: {
-    // color: Colors.button,
-    // color: 'black',
-  },
-  iconActive: {
-    // color: 'black',
-  },
+  icon: {},
+  iconActive: {},
   toggleButton: {
-    // backgroundColor: Colors.button,
     elevation: 0,
     borderWidth: 0,
   },

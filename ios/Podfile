@@ -15,7 +15,7 @@ if linkage != nil
   use_frameworks! :linkage => linkage.to_sym
 end
 
-target 'dwell' do
+target 'Dwell' do
   config = use_native_modules!
   
     # Enable modular headers for specific pods
@@ -35,6 +35,15 @@ target 'dwell' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+    
+       # Fix: Copy Hermes dSYM into archive so "Upload Symbols" warning is resolved
+    installer.pods_project.targets.each do |target|
+      if target.name == 'hermes-engine'
+        target.build_configurations.each do |config|
+          config.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
+        end
+      end
+    end
   end
 end
 

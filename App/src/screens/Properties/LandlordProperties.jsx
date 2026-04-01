@@ -103,17 +103,6 @@ const propertyStats = useMemo(() => {
     }
   });
 
-  // Debug: Log final calculations
-  console.log('📊 Property Stats:', {
-    total,
-    vacant,
-    occupied,
-    totalPotentialRent,
-    monthlyIncome,
-    paidAmount,
-    pendingAmount
-  });
-
   return {
     total,
     vacant,
@@ -543,6 +532,7 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily("bold"),
     color: Colors.black,
     marginBottom: hp(2),
+
   },
   quickLinksRow: {
     flexDirection: "row",
@@ -566,6 +556,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
+        borderColor: Colors.lightRed,
+     borderWidth: 1.5,
   },
   linkText: {
     fontSize: wp(3),

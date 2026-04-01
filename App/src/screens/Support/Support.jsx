@@ -10,8 +10,8 @@ import {
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 import { heightPercentageToDP as hp, widthPercentageToDP as wp } from "react-native-responsive-screen";
 import { Colors } from "../../Theme";
+import Fonts from "../../Theme/fonts";
 import MaintenanceDetails from "./MaintenanceDetails";
-
 import MaintenanceFilters from '../../components/MaintenanceFilters/MaintenanceFilters';
 import Modal from "react-native-modal";
 import Toast from "react-native-simple-toast";
@@ -22,7 +22,6 @@ import { maintenanceSelectors } from "../../Redux/Maintenance/maintenanceSlice";
 import { getTenantProperties } from '../../Redux/Properties/services';
 import { AppIcon } from "../../components/AppIcon";
 import { icons } from "../../Assets";
-import { getFontFamily } from '../../utils';
 
 
 const Support = ({ navigation }) => {
@@ -52,18 +51,16 @@ const Support = ({ navigation }) => {
   useEffect(() => {
     const fetchPropertyInfo = async () => {
       if (!accessToken || !tenant_sub) {
-        console.error('❌ Missing tenant_sub or token');
+        console.error(' Missing tenant_sub or token');
         setLoadingProperty(false);
         return;
       }
 
       try {
         setLoadingProperty(true);
-        console.log('🔍 Fetching tenant properties for:', tenant_sub);
-
+    
         const result = await dispatch(getTenantProperties({ tenantId: tenant_sub, token: accessToken })).unwrap();
         
-        console.log('📦 Tenant properties response:', result);
 
         if (result && Array.isArray(result) && result.length > 0) {
           const assignedProperty = result[0];
@@ -103,7 +100,6 @@ const Support = ({ navigation }) => {
 
   useEffect(() => {
     if (token && tenant_sub) {
-      console.log('📡 Fetching maintenance requests for tenant:', tenant_sub);
       dispatch(
         getMaintenanceRequests({
           tenant_id: tenant_sub,
@@ -113,7 +109,6 @@ const Support = ({ navigation }) => {
     }
   }, [dispatch, token, tenant_sub]);
 
-  // ✅ FIXED: Enhanced getDisplayStatus with proper priority checking
   const getDisplayStatus = (item) => {
     console.log('🔍 Checking status for ticket:', item.ticket_id, {
       main_status: item.status,
@@ -125,48 +120,37 @@ const Support = ({ navigation }) => {
     const assignmentState = item?.contractor_assignment?.state?.toUpperCase();
     const jobStatus = item?.status?.toUpperCase();
 
-    // ✅ Priority 1: COMPLETED (highest priority)
     if (
       assignmentState === 'COMPLETED' ||
       jobStatus === 'COMPLETED' ||
       jobStatus === 'CLOSED' ||
       jobStatus === 'RESOLVED'
     ) {
-      console.log('✅ Status: Completed');
       return 'Completed';
     }
 
-    // ✅ Priority 2: Check for completion indicators
     if (item.completed_at || item.completion_notes) {
-      console.log('✅ Status: Completed (from completion indicators)');
       return 'Completed';
     }
 
-    // ✅ Priority 3: IN PROGRESS
     if (
       assignmentState === 'ACCEPTED' ||
       assignmentState === 'IN_PROGRESS'
     ) {
-      console.log('⏳ Status: In Progress');
       return 'In Progress';
     }
 
-    // ✅ Priority 4: OPEN/NEW
     if (
       assignmentState === 'OFFERED' ||
       assignmentState === 'PENDING' ||
       jobStatus === 'OPEN' ||
       jobStatus === 'NEW'
     ) {
-      console.log('🆕 Status: Open');
       return 'Open';
     }
-
-    console.log('⚠️ Status: Pending (default)');
     return 'Pending';
   };
 
-  // ✅ FIXED: Calculate filter counts using getDisplayStatus
   const statusCounts = useMemo(() => {
     const counts = requests.reduce((acc, req) => {
       const displayStatus = getDisplayStatus(req);
@@ -174,8 +158,6 @@ const Support = ({ navigation }) => {
       acc[status] = (acc[status] || 0) + 1;
       return acc;
     }, {});
-    
-    console.log('📊 Status counts:', counts);
     return counts;
   }, [requests]);
 
@@ -187,7 +169,6 @@ const Support = ({ navigation }) => {
     }, {});
   }, [requests]);
 
-  // ✅ FIXED: Filter requests using getDisplayStatus
   const filteredRequests = useMemo(() => {
     return requests.filter(req => {
       const displayStatus = getDisplayStatus(req).toLowerCase();
@@ -210,21 +191,19 @@ const Support = ({ navigation }) => {
 
   const visibleRequests = showAll ? sortedRequests : sortedRequests.slice(0, 3);
 
-  // ✅ FIXED: Updated getStatusStyle to match new status values
   const getStatusStyle = (status) => {
     const statusLower = status?.toLowerCase() || '';
     
     if (statusLower === 'completed' || statusLower === 'closed' || statusLower === 'resolved') {
-      return { backgroundColor: "#DBEAFE", color: "#2563EB" }; // Blue for completed
+      return { backgroundColor: "#DBEAFE", color: "#2563EB" };
     } else if (statusLower === 'in progress' || statusLower === 'inprogress') {
-      return { backgroundColor: "#D1FAE5", color: "#059669" }; // Green for in progress
+      return { backgroundColor: "#D1FAE5", color: "#059669" };
     } else if (statusLower === 'open' || statusLower === 'new') {
-      return { backgroundColor: "#FEF3C7", color: "#D97706" }; // Yellow for open/new
+      return { backgroundColor: "#FEF3C7", color: "#D97706" };
     } else if (statusLower === 'pending') {
-      return { backgroundColor: "#F3F4F6", color: "#6B7280" }; // Gray for pending
+      return { backgroundColor: "#F3F4F6", color: "#6B7280" };
     }
-    
-    return { backgroundColor: "#F3F4F6", color: "#6B7280" }; // Default gray
+    return { backgroundColor: "#F3F4F6", color: "#6B7280" };
   };
 
   const formatDate = (dateString) => {
@@ -269,7 +248,6 @@ const Support = ({ navigation }) => {
   const handleCloseModal = () => {
     setShowModal(false);
     if (token && tenant_sub) {
-      console.log('🔄 Refreshing maintenance requests...');
       dispatch(getMaintenanceRequests({
         tenant_id: tenant_sub,
         token: token,
@@ -290,20 +268,19 @@ const Support = ({ navigation }) => {
     
     if (!propertyInfo.property_id) {
       Toast.show("Property ID missing. Please contact support.");
-      console.error('❌ Property Info:', propertyInfo);
+      console.error(' Property Info:', propertyInfo);
       return;
     }
     
     if (!propertyInfo.landlord_id) {
       Toast.show("Landlord information missing. Please contact support.");
-      console.error('❌ Property Info:', propertyInfo);
+      console.error(' Property Info:', propertyInfo);
       return;
     }
     
     setShowModal(true);
   };
 
-  // ✅ FIXED: renderRequest now uses getDisplayStatus
   const renderRequest = ({ item }) => {
     const ticketId = item.ticket_id || item.request_id || item.id || 'N/A';
     const title = item.title || 'Untitled Request';
@@ -311,17 +288,14 @@ const Support = ({ navigation }) => {
     const location = item.location || 'Location not specified';
     const category = item.category || '';
     const priority = item.priority || 'Medium';
-    const displayStatus = getDisplayStatus(item); // ✅ Use function
+    const displayStatus = getDisplayStatus(item);
     const createdAt = item.created_at || new Date().toISOString();
     const preferredWindow = item.preferred_window || null;
-    
-    console.log('🎨 Rendering card for:', ticketId, 'with status:', displayStatus);
-    
+
     return (
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={() => {
-          console.log("📍 Navigating to QueryDetails with item:", item);
           navigation.navigate("QueryDetails", { data: item });
         }}
       >
@@ -361,7 +335,7 @@ const Support = ({ navigation }) => {
                 name={icons.calender}
                 height={hp(2)}
                 width={hp(2)}
-                color={Colors.placeholder}
+                color={Colors.inputText}
               />
               <Text style={styles.footerText}>{formatDate(createdAt)}</Text>
             </View>
@@ -371,7 +345,7 @@ const Support = ({ navigation }) => {
                   name={icons.calender}
                   height={hp(2)}
                   width={hp(2)}
-                  color={Colors.placeholder}
+                  color={Colors.inputText}
                 />
                 <Text style={styles.footerText}>
                   {formatScheduledWindow(
@@ -411,7 +385,6 @@ const Support = ({ navigation }) => {
         </View>
       </View>
 
-      {/* Filters Component */}
       {requests.length > 0 && (
         <MaintenanceFilters
           selectedStatus={selectedStatus}
@@ -431,13 +404,13 @@ const Support = ({ navigation }) => {
         </View>
       ) : requests.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Icon name="clipboard-text-outline" size={80} color="#E0E0E0" />
+          <Icon name="clipboard-text-outline" size={80} color={Colors.borderLine} />
           <Text style={styles.emptyText}>No maintenance requests yet</Text>
           <Text style={styles.emptySubText}>Tap + to create your first request</Text>
         </View>
       ) : filteredRequests.length === 0 ? (
         <View style={styles.emptyFilterContainer}>
-          <Icon name="filter-off-outline" size={60} color="#E0E0E0" />
+          <Icon name="filter-off-outline" size={60} color={Colors.borderLine} />
           <Text style={styles.emptyText}>No requests match your filters</Text>
           <TouchableOpacity
             style={styles.clearFiltersButton}
@@ -523,18 +496,19 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     fontSize: 20,
-    fontWeight: "bold",
-    color: "#111827",
+    fontFamily: Fonts.popbold,
+    color: Colors.black,
+     fontWeight: "bold",
   },
   glassContainer: {
     borderRadius: 20,
     padding: 16,
     marginBottom: 16,
     marginHorizontal: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
+    backgroundColor: Colors.backgroundColor,
     borderWidth: 1,
-    borderColor: "rgba(229, 57, 53, 0.15)",
-    shadowColor: "#E53935",
+    borderColor: Colors.borderLine,
+    shadowColor: Colors.red,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.15,
     shadowRadius: 10,
@@ -546,11 +520,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   cardTitle: {
-    fontFamily: getFontFamily('Poppins', '600'),
+    fontFamily: Fonts.popsemiBold,
     fontSize: hp(1.8),
     lineHeight: hp(3),
     letterSpacing: 0,
-    color: Colors.textPrimary,
+    color: Colors.black,
     width: wp(62),
     height: hp(3),
     opacity: 1,
@@ -561,12 +535,29 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginLeft: 8,
   },
-  statusText: { fontSize: 11, fontWeight: "600" },
-  cardCategory: { fontSize: 11, color: "#6B7280", marginBottom: 8 },
-  cardDescription: { fontSize: 13, color: "#374151", marginBottom: 12 },
+  statusText: {
+    fontSize: 11,
+    fontFamily: Fonts.semiBold,
+  },
+  cardCategory: {
+    fontSize: 11,
+    fontFamily: Fonts.regular,
+    color: Colors.grey,
+    marginBottom: 8,
+  },
+  cardDescription: {
+    fontSize: 13,
+    fontFamily: Fonts.regular,
+    color: Colors.clr66,
+    marginBottom: 12,
+  },
   cardFooter: { flexDirection: "row", gap: 16 },
   footerItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  footerText: { fontSize: 11, color: "#9CA3AF" },
+  footerText: {
+    fontSize: 11,
+    fontFamily: Fonts.regular,
+    color: Colors.inputText,
+  },
   showMoreButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -575,7 +566,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     gap: 8,
   },
-  showMoreText: { fontSize: 14, fontWeight: "bold", color: "#DC2626" },
+  showMoreText: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: Colors.red,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -585,7 +580,8 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     fontSize: 14,
-    color: "#6B7280",
+    fontFamily: Fonts.regular,
+    color: Colors.grey,
   },
   emptyContainer: {
     flex: 1,
@@ -601,26 +597,27 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#6B7280",
+    fontFamily: Fonts.semiBold,
+    color: Colors.grey,
     marginTop: 16,
   },
   emptySubText: {
     fontSize: 14,
-    color: "#9CA3AF",
+    fontFamily: Fonts.regular,
+    color: Colors.inputText,
     marginTop: 8,
   },
   clearFiltersButton: {
     marginTop: 16,
     paddingHorizontal: 20,
     paddingVertical: 10,
-    backgroundColor: "#E53935",
+    backgroundColor: Colors.red,
     borderRadius: 8,
   },
   clearFiltersText: {
-    color: "#FFFFFF",
+    color: Colors.black,
     fontSize: 14,
-    fontWeight: "600",
+    fontFamily: Fonts.semiBold,
   },
   fab: {
     position: "absolute",
@@ -629,20 +626,20 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#111827",
+    backgroundColor: Colors.black,
     justifyContent: "center",
     alignItems: "center",
     elevation: 6,
-    shadowColor: "#000",
+    shadowColor: Colors.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
   },
   fabText: {
-    color: "#fff",
+    color: Colors.white,
     fontSize: 28,
     lineHeight: 28,
-    fontWeight: "300",
+    fontFamily: Fonts.light,
   },
   modalStyle: {
     justifyContent: "flex-end",

@@ -1,23 +1,22 @@
 import React, { useState } from 'react';
 import {
   View,
+  Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
   Modal,
 } from 'react-native';
-import { Box, Text, VStack, HStack, Badge } from 'native-base';
 import {
   heightPercentageToDP as hp,
   widthPercentageToDP as wp,
 } from 'react-native-responsive-screen';
-import { AppIcon } from "../../components/AppIcon";
-import { icons } from "../../Assets";
-import { Colors } from "../../Theme";
+import { AppIcon } from '../../components/AppIcon';
+import { icons } from '../../Assets';
+import { Colors } from '../../Theme';
 
 const PropertyFilters = ({
   activeTab,
-  // Properties filters
   selectedPropertyType,
   onPropertyTypeChange,
   selectedAvailability,
@@ -25,7 +24,6 @@ const PropertyFilters = ({
   propertyTypeCounts = {},
   vacantCount = 0,
   occupiedCount = 0,
-  // Tenants filters
   selectedTenantStatus,
   onTenantStatusChange,
   tenantStatusCounts = {},
@@ -35,7 +33,7 @@ const PropertyFilters = ({
   const [showTenantStatusModal, setShowTenantStatusModal] = useState(false);
 
   const propertyTypes = [
-   { label: 'All Properties', value: 'all' },
+    { label: 'All Properties', value: 'all' },
     { label: 'Apartment', value: 'apartment' },
     { label: 'Complex', value: 'complex' },
     { label: 'House', value: 'house' },
@@ -61,15 +59,25 @@ const PropertyFilters = ({
     { label: 'Paid', value: 'paid' },
   ];
 
+  // Badge — replaces NativeBase <Badge>
+  const CountBadge = ({ count, isSelected }) => (
+    <View style={[styles.badge, isSelected ? styles.badgeSelected : styles.badgeDefault]}>
+      <Text style={[styles.badgeText, { color: isSelected ? 'red' : '#333' }]}>
+        {count}
+      </Text>
+    </View>
+  );
+
   const FilterModal = ({ visible, onClose, title, options, selectedValue, onSelect, counts }) => (
     <Modal
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={onClose}
-    >
+      onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
+
+          {/* Header */}
           <View style={styles.header}>
             <Text style={styles.headerTitle}>{title}</Text>
             <TouchableOpacity onPress={onClose}>
@@ -78,100 +86,82 @@ const PropertyFilters = ({
           </View>
 
           <ScrollView style={{ maxHeight: hp(50) }}>
-            <VStack>
-              {options.map((option, index) => {
-                const isSelected = selectedValue === option.value;
-                const count = counts ? counts[option.value] : undefined;
-                return (
-                  <TouchableOpacity
-                    key={option.value}
-                    onPress={() => {
-                      onSelect(option.value);
-                      onClose();
-                    }}
-                  >
-                    <Box
-                      bg={isSelected ? 'red.50' : 'white'}
-                      px={4}
-                      py={hp(1.8)}
-                      borderBottomWidth={index < options.length - 1 ? 1 : 0}
-                      borderBottomColor="gray.200"
-                    >
-                      <HStack justifyContent="space-between" alignItems="center">
-                        <Text style={{ fontSize: hp(1.9), color: isSelected ? 'red' : '#333' }}>
-                          {option.label}
-                        </Text>
-                        {count !== undefined && (
-                          <Badge
-                            bg={isSelected ? 'red.100' : 'gray.200'}
-                            rounded="full"
-                            px={2}
-                            py={0.5}
-                            _text={{ fontSize: hp(1.5), color: isSelected ? 'red' : '#333' }}
-                          >
-                            {count}
-                          </Badge>
-                        )}
-                        {isSelected && (
-                          <AppIcon name={icons.checkCircle} size={wp(4)} color={Colors.red600} />
-                        )}
-                      </HStack>
-                    </Box>
-                  </TouchableOpacity>
-                );
-              })}
-            </VStack>
+            {options.map((option, index) => {
+              const isSelected = selectedValue === option.value;
+              const count = counts ? counts[option.value] : undefined;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  onPress={() => {
+                    onSelect(option.value);
+                    onClose();
+                  }}>
+                  <View
+                    style={[
+                      styles.optionRow,
+                      { backgroundColor: isSelected ? '#fff5f5' : 'white' },
+                      index < options.length - 1 && styles.optionBorder,
+                    ]}>
+                    <View style={styles.optionLeft}>
+                      <Text style={[styles.optionText, { color: isSelected ? 'red' : '#333' }]}>
+                        {option.label}
+                      </Text>
+                    </View>
+                    <View style={styles.optionRight}>
+                      {count !== undefined && (
+                        <CountBadge count={count} isSelected={isSelected} />
+                      )}
+                      {isSelected && (
+                        <AppIcon name={icons.checkCircle} size={wp(4)} color={Colors.red600} />
+                      )}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
+
         </View>
       </View>
     </Modal>
   );
 
   const FilterButton = ({ label, onPress }) => (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.7} >
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
       <View style={styles.glassCard}>
-        <Box style={styles.filterButtonInner}>
-          <HStack justifyContent="space-between" alignItems="center"   space={wp(1)} >
-            <Text fontSize={hp(1.8)} fontWeight="500" color="gray.700"  numberOfLines={1}>
+        <View style={styles.filterButtonInner}>
+          <View style={styles.filterButtonRow}>
+            <Text style={styles.filterButtonLabel} numberOfLines={1}>
               {label}
             </Text>
             <AppIcon name={icons.arrowDown} size={wp(3)} color={Colors.black} />
-          </HStack>
-        </Box>
+          </View>
+        </View>
       </View>
     </TouchableOpacity>
   );
 
-  // Prepare counts for availability
   const availabilityCounts = {
     all: vacantCount + occupiedCount,
     vacant: vacantCount,
     occupied: occupiedCount,
   };
 
-  // Prepare counts for property types
   const propertyTypeCountsWithAll = {
     all: Object.values(propertyTypeCounts).reduce((sum, count) => sum + count, 0),
     ...propertyTypeCounts,
   };
 
-  // Prepare counts for tenant status
   const tenantStatusCountsWithAll = {
     all: Object.values(tenantStatusCounts).reduce((sum, count) => sum + count, 0),
     ...tenantStatusCounts,
   };
 
-  // Render based on active tab
   if (activeTab === 'properties') {
     return (
-      <VStack mx={wp(4.5)} mb={hp(0.5)}>
-        {/* Properties Filter Buttons */}
-        <HStack
-        alignItems="center"
-  flexDirection="row"
-  flexWrap="nowrap"
-  space={wp(1)}>
-        <AppIcon name={icons.progresses} size={wp(6)} />
+      <View style={[styles.vstack, { marginHorizontal: wp(4.5), marginBottom: hp(0.5) }]}>
+        <View style={styles.hstackRow}>
+          <AppIcon name={icons.progresses} size={wp(6)} />
           <FilterButton
             label="Property Type"
             onPress={() => setShowTypeModal(true)}
@@ -180,9 +170,8 @@ const PropertyFilters = ({
             label="Availability"
             onPress={() => setShowAvailabilityModal(true)}
           />
-        </HStack>
+        </View>
 
-        {/* Properties Filter Modals */}
         <FilterModal
           visible={showTypeModal}
           onClose={() => setShowTypeModal(false)}
@@ -201,22 +190,20 @@ const PropertyFilters = ({
           onSelect={onAvailabilityChange}
           counts={availabilityCounts}
         />
-      </VStack>
+      </View>
     );
   }
 
   if (activeTab === 'tenants') {
     return (
-      <VStack mx={wp(4.5)} mb={hp(1)}>
-        {/* Tenants Filter Button */}
-        <HStack>
+      <View style={[styles.vstack, { marginHorizontal: wp(4.5), marginBottom: hp(1) }]}>
+        <View style={styles.hstackRow}>
           <FilterButton
             label="Tenant Status"
             onPress={() => setShowTenantStatusModal(true)}
           />
-        </HStack>
+        </View>
 
-        {/* Tenants Filter Modal */}
         <FilterModal
           visible={showTenantStatusModal}
           onClose={() => setShowTenantStatusModal(false)}
@@ -226,7 +213,7 @@ const PropertyFilters = ({
           onSelect={onTenantStatusChange}
           counts={tenantStatusCountsWithAll}
         />
-      </VStack>
+      </View>
     );
   }
 
@@ -234,6 +221,15 @@ const PropertyFilters = ({
 };
 
 const styles = StyleSheet.create({
+  vstack: {
+    flexDirection: 'column',
+  },
+  hstackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
+    gap: wp(1),
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -257,6 +253,45 @@ const styles = StyleSheet.create({
     fontSize: hp(2.2),
     fontWeight: 'bold',
   },
+  optionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(1.8),
+  },
+  optionBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e5e5',
+  },
+  optionLeft: {
+    flex: 1,
+  },
+  optionRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(1),
+  },
+  optionText: {
+    fontSize: hp(1.9),
+  },
+  badge: {
+    borderRadius: 999,
+    paddingHorizontal: wp(2),
+    paddingVertical: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeSelected: {
+    backgroundColor: '#fee2e2',
+  },
+  badgeDefault: {
+    backgroundColor: '#e5e5e5',
+  },
+  badgeText: {
+    fontSize: hp(1.5),
+    fontWeight: '500',
+  },
   glassCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
     borderRadius: 16,
@@ -271,6 +306,17 @@ const styles = StyleSheet.create({
   },
   filterButtonInner: {
     padding: hp(1),
+  },
+  filterButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: wp(1),
+  },
+  filterButtonLabel: {
+    fontSize: hp(1.8),
+    fontWeight: '500',
+    color: '#374151',
   },
 });
 

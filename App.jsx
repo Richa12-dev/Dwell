@@ -2,7 +2,7 @@ import NetInfo from '@react-native-community/netinfo';
 
 import { NativeBaseProvider } from 'native-base';
 import React, { useEffect, useState } from 'react';
-import { Platform, StatusBar, StyleSheet } from 'react-native';
+import { Platform, StatusBar, StyleSheet, LogBox } from 'react-native';
 import 'react-native-gesture-handler';
 import { heightPercentageToDP } from 'react-native-responsive-screen';
 import { Provider, useSelector } from 'react-redux';
@@ -11,17 +11,11 @@ import { NavigationContainer } from '@react-navigation/native';
 // import { createStackNavigator } from '@react-navigation/stack';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-console.log('App.jsx: File loaded');
-
 // Import utilities and components
 import NetworkStatusBanner from './App/src/components/NetworkStatusBanner';
 import { persistor, store } from './App/src/Redux/store';
 import { loginDataSelectors } from './App/src/Redux/Login/loginSlice';
 import { NavigationRef } from './App/src/navigation/RouterServices';
-
-console.log('App.jsx: Imports successful');
-console.log('Store:', store);
-console.log('Persistor:', persistor);
 
 
 // Import all screens
@@ -69,13 +63,34 @@ import Leaderboard from './App/src/screens/Payment/Leaderboard';
   import ReferralsRewards from './App/src/screens/Payment/ReferralsRewards';
   import TenantManagement from './App/src/screens/Support/TenantManagement';
 import RentCollection from './App/src/screens/Payment/RentCollection';
+import AdminLogin from './App/src/screens/Login/AdminLogin';
+
+import AdminDashboard from './App/src/screens/Admin/AdminDashboard';
+import AdminUserList from './App/src/screens/Admin/AdminUserList';
+
+import TermsAndConditions from './App/src/screens/Terms&Conditions/Terms&Conditions';
      
+import PrivacyPolicy from './App/src/screens/PrivacyPolicy/PrivacyPolicy';
+
+import PropertyDocuments from './App/src/screens/PropertyDocuments/PropertyDocuments';
+
+import WebhookLogMonitor from './App/src/screens/Admin/WebhookLogMonitor';
+
 
 const Stack = createNativeStackNavigator();
+
+
 
 const App = () => {
   const [netInfo, setNetInfo] = useState('');
   const [isConnected, setIsConnected] = useState(true);
+  
+  useEffect(() => {
+  LogBox.ignoreLogs([
+    'SSRProvider is not necessary',
+  ]);
+}, []);
+
 
   useEffect(() => {
     // Subscribe to network state updates
@@ -121,6 +136,14 @@ const App = () => {
               <Stack.Screen name="ForgotPassword" component={ForgotPassword} />
               <Stack.Screen name="ResetPassword" component={ResetPassword} />
               
+               <Stack.Screen name="AdminLogin" component={AdminLogin} />
+                {/* ── Admin Dashboard ── */}
+              <Stack.Screen name="AdminDashboard" component={AdminDashboard} />
+              <Stack.Screen name="UserList" component={AdminUserList}/>
+              
+   <Stack.Screen name="TermsAndConditions" component={TermsAndConditions} options={{ headerShown: false }}/>
+   <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicy} options={{ headerShown: false }} />
+              
               {/* Bottom Tab Navigators */}
               <Stack.Screen name="ProfileFooter" component={ProfileFooter} />
               <Stack.Screen name="BottomFotter" component={BottomFotter} />
@@ -135,6 +158,8 @@ const App = () => {
               <Stack.Screen name="PropertiesDetails" component={PropertiesDetails} />
               <Stack.Screen name="LandlordProperties" component={LandlordProperties} />
               <Stack.Screen name="Properties" component={Properties} />
+             
+    <Stack.Screen name="PropertyDocuments" component={PropertyDocuments} />
               <Stack.Screen name="ProfileHome" component={ProfileHome} />
               <Stack.Screen name="Payout" component={Payout} />
               <Stack.Screen name="Query" component={Query} />
@@ -178,6 +203,12 @@ const App = () => {
                 
                 <Stack.Screen name="TenantManagement" component={TenantManagement} />
 <Stack.Screen name="RentCollection" component={RentCollection} />
+
+<Stack.Screen
+  name="WebhookLogMonitor"
+  component={WebhookLogMonitor}
+  options={{ title: 'SMS Webhook Monitor' }}
+/>
                           
            
             </Stack.Navigator>

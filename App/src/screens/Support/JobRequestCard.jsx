@@ -79,9 +79,7 @@ const JobRequestCard = ({ job, onPress, onAddInvoice, onJobExpired, navigation }
 
     return () => clearInterval(timer);
 
-  // isAcceptedByOther added to deps so the effect re-runs the moment Redux
-  // delivers fresh server data (from the 8-second poll) and the card immediately
-  // switches to the Declined badge without waiting for the full timer.
+ 
   }, [job.ticket_id, job.status, job.offered_at, job.created_at, isAcceptedByOther]);
 
   const formatTime = (ms) => {
@@ -137,12 +135,6 @@ const JobRequestCard = ({ job, onPress, onAddInvoice, onJobExpired, navigation }
           </Text>
         </View>
 
-        {/*
-          Badge priority:
-          1. isExpired (timer ran out OR accepted by another contractor) → Declined
-          2. isNew + timer running → countdown badge
-          3. Normal status badge
-        */}
         {isExpired ? (
           <View style={[styles.statusBadge, { backgroundColor: '#FFEBEE' }]}>
             <Text style={[styles.statusText, { color: '#B71C1C' }]}>✕ Declined</Text>

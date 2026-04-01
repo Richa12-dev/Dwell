@@ -11,6 +11,7 @@ import {
     Image,
     ImageBackground,
     ScrollView,
+    KeyboardAvoidingView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import FlashMessage from 'react-native-flash-message';
@@ -91,6 +92,12 @@ locations={[0.3453, 0.7113]}
 
                 <StatusBar backgroundColor={Colors.black} barStyle="dark-content" />
                 <FlashMessage position="top" />
+                
+                    <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                >
 
                 <ScrollView
                     style={styles.scrollView}
@@ -215,6 +222,7 @@ locations={[0.3453, 0.7113]}
                         </View>
                     </View>
                 </ScrollView>
+            </KeyboardAvoidingView>
             </LinearGradient>
         </ImageBackground>
     );

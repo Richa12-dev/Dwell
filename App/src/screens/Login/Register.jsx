@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,10 @@ import {
   ScrollView,
   StatusBar,
   ActivityIndicator,
+  Modal,
+  FlatList,
+  TextInput as RNTextInput,
+      KeyboardAvoidingView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { TextInput } from 'react-native-paper';
@@ -16,13 +20,15 @@ import {
   widthPercentageToDP as wp,
 } from 'react-native-responsive-screen';
 import { useDispatch, useSelector } from 'react-redux';
-import { registerUser, verifyContractorAddress } from '../../Redux/Login/services';
+import { registerUser, verifyContractorAddress, fetchCountries } from '../../Redux/Login/services';
 import { loginDataSelectors, resetAddressVerification } from '../../Redux/Login/loginSlice';
 import { Colors } from '../../Theme';
 import { getFontFamily } from '../../utils';
 import { AppIcon } from '../../components/AppIcon';
 import { icons } from '../../Assets';
 
+
+const US_FALLBACK = { name: 'United States', flag: '🇺🇸', dial: '+1' };
 
 const roleOptions = [
   { id: 'tenant', name: 'Tenant' },
@@ -58,7 +64,27 @@ const Register = ({ navigation }) => {
 
   const dispatch = useDispatch();
 
- 
+  // ── Country code picker ──────────────────────────────────────────────────────
+  const { loading: countriesLoading, list: countries } = useSelector(
+    loginDataSelectors.getCountries
+  );
+  const [selectedCountry, setSelectedCountry] = useState(US_FALLBACK);
+  const [showCountryModal, setShowCountryModal] = useState(false);
+  const [countrySearch, setCountrySearch] = useState('');
+
+  useEffect(() => {
+    if (countries.length <= 1) {
+      dispatch(fetchCountries());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (countries.length > 1) {
+      const us = countries.find(c => c.name === 'United States') ?? US_FALLBACK;
+      setSelectedCountry(us);
+    }
+  }, [countries]);
+
   const { loading: registrationLoading } = useSelector(
     loginDataSelectors.getRegistrationData
   );
@@ -66,7 +92,7 @@ const Register = ({ navigation }) => {
   // Address verification state from Redux
   const {
     loading: verifyLoading,
-    status: verifyStatus,   // 'idle' | 'success' | 'failed'
+    status: verifyStatus,
     lat: verifiedLat,
     lng: verifiedLng,
     fullAddress: verifiedAddress,
@@ -76,10 +102,32 @@ const Register = ({ navigation }) => {
   const isContractor = fields.role === 'contractor';
   const isVerified = verifyStatus === 'success';
 
+  // ── useMemo: reactive boolean — re-computes on every field/address change ────
+  const isFormComplete = useMemo(() => {
+    const base =
+      fields.firstName.trim() !== '' &&
+      fields.lastName.trim() !== '' &&
+      fields.email.trim() !== '' &&
+      fields.password.trim() !== '' &&
+      fields.phone.trim() !== '' &&
+      fields.role !== '';
+
+    if (!base) return false;
+    if (fields.role === 'contractor') {
+      return (
+        address.street.trim() !== '' &&
+        address.city.trim() !== '' &&
+        address.state.trim() !== '' &&
+        address.zipcode.trim() !== '' &&
+        isVerified
+      );
+    }
+    return true;
+  }, [fields, address, isVerified]);
+
   // ─── Address helpers ────────────────────────────────────────────────────────
   const handleAddressChange = (key, value) => {
     setAddress(prev => ({ ...prev, [key]: value }));
-    // Reset Redux verification state whenever user edits any address field
     if (verifyStatus !== 'idle') {
       dispatch(resetAddressVerification());
     }
@@ -102,15 +150,14 @@ const Register = ({ navigation }) => {
   const validateFields = () => {
     const newErrors = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const phoneRegex = /^\+\d{11,15}$/;
 
     if (!fields.firstName.trim()) newErrors.firstName = 'First name required';
     if (!fields.lastName.trim()) newErrors.lastName = 'Last name required';
     if (!emailRegex.test(fields.email)) newErrors.email = 'Enter a valid email';
     if (fields.password.length < 8)
       newErrors.password = 'Password must be at least 8 characters';
-    if (!phoneRegex.test(fields.phone))
-      newErrors.phone = 'Enter phone in format +15555550100';
+    if (!fields.phone.trim() || !/^\d{6,14}$/.test(fields.phone.trim()))
+      newErrors.phone = 'Enter a valid phone number (digits only)';
     if (!fields.role) newErrors.role = 'Select a role';
 
     if (isContractor) {
@@ -127,7 +174,6 @@ const Register = ({ navigation }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-
   const callAPI = async () => {
     if (!validateFields()) {
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -140,13 +186,12 @@ const Register = ({ navigation }) => {
         password: fields.password,
         firstName: fields.firstName.trim(),
         lastName: fields.lastName.trim(),
-        phoneNumber: fields.phone.trim(),
+        phoneNumber: `${selectedCountry.dial}${fields.phone.trim()}`,
         role: fields.role,
         tenantId: fields.role === 'tenant' ? `tenant-${Date.now()}` : '',
         landlordId: fields.role === 'landlord' ? `landlord-${Date.now()}` : '',
         contractorId:
           fields.role === 'contractor' ? `contractor-${Date.now()}` : undefined,
-        // Verified address payload for contractors
         ...(isContractor && {
           address: {
             street: address.street.trim(),
@@ -164,6 +209,7 @@ const Register = ({ navigation }) => {
       navigation.navigate('OtpScreen', {
         email: fields.email.trim(),
         phone: fields.phone.trim(),
+        role: fields.role,   
       });
     } catch (error) {
       console.error('Registration failed:', error);
@@ -219,6 +265,12 @@ const Register = ({ navigation }) => {
         locations={[0, 0.2, 0.35, 0.5, 0.7]}
         style={styles.gradientOverlay}>
         <StatusBar backgroundColor={Colors.white} barStyle="dark-content" />
+        
+     <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                >
 
         <ScrollView
           ref={scrollRef}
@@ -297,16 +349,105 @@ const Register = ({ navigation }) => {
                 } />
               {errors.password && <Text style={styles.error}>{errors.password}</Text>}
 
-              {/* Phone */}
-              <TextInput
-                label="Phone Number" mode="outlined"
-                style={[styles.input, { marginTop: hp(0.8) }]}
-                outlineColor="#E0E0E0" activeOutlineColor={Colors.black}
-                keyboardType="phone-pad"
-                value={fields.phone}
-                onChangeText={t => setFields({ ...fields, phone: t })}
-                theme={{ roundness: 8 }} />
+              {/* Phone — country code picker + local number */}
+              <View style={[styles.phoneRow, { marginTop: hp(0.8) }]}>
+
+                {/* Country code button */}
+                <TouchableOpacity
+                  style={[
+                    styles.countryCodeBtn,
+                    errors.phone && styles.countryCodeBtnError,
+                  ]}
+                  onPress={() => {
+                    setCountrySearch('');
+                    setShowCountryModal(true);
+                  }}
+                  activeOpacity={0.7}>
+                  {countriesLoading ? (
+                    <ActivityIndicator size="small" color="#666" />
+                  ) : (
+                    <>
+                      <Text style={styles.countryFlag}>{selectedCountry.flag}</Text>
+                      <Text style={styles.countryDial}>{selectedCountry.dial}</Text>
+                      <AppIcon name={icons.arrowDown} size={hp(2.2)} />
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {/* Plain RN TextInput — same height as button, no floating label offset */}
+                <RNTextInput
+                  style={[
+                    styles.phoneInput,
+                    errors.phone && styles.phoneInputError,
+                  ]}
+                  placeholder="Phone Number"
+                  placeholderTextColor="#888"
+                  keyboardType="phone-pad"
+                  value={fields.phone}
+                  onChangeText={t => setFields({ ...fields, phone: t.replace(/[^0-9]/g, '') })}
+                />
+              </View>
               {errors.phone && <Text style={styles.error}>{errors.phone}</Text>}
+
+              {/* Country Code Modal */}
+              <Modal
+                visible={showCountryModal}
+                animationType="slide"
+                transparent
+                onRequestClose={() => setShowCountryModal(false)}>
+                <View style={styles.modalOverlay}>
+                  <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                      <Text style={styles.modalTitle}>Select Country</Text>
+                      <TouchableOpacity onPress={() => setShowCountryModal(false)}>
+                        <Text style={styles.modalClose}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.modalSearchWrapper}>
+                      <RNTextInput
+                        style={styles.modalSearchInput}
+                        placeholder="Search country or code..."
+                        placeholderTextColor="#999"
+                        value={countrySearch}
+                        onChangeText={setCountrySearch}
+                        autoFocus
+                      />
+                    </View>
+
+                    {countriesLoading ? (
+                      <View style={styles.modalLoader}>
+                        <ActivityIndicator size="large" color={Colors.black} />
+                        <Text style={styles.modalLoaderText}>Loading countries...</Text>
+                      </View>
+                    ) : (
+                      <FlatList
+                        data={countries.filter(c =>
+                          c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
+                          c.dial.includes(countrySearch)
+                        )}
+                        keyExtractor={item => item.name}
+                        keyboardShouldPersistTaps="handled"
+                        renderItem={({ item }) => (
+                          <TouchableOpacity
+                            style={[
+                              styles.modalItem,
+                              item.name === selectedCountry.name && styles.modalItemActive,
+                            ]}
+                            onPress={() => {
+                              setSelectedCountry(item);
+                              setShowCountryModal(false);
+                            }}>
+                            <Text style={styles.modalItemFlag}>{item.flag}</Text>
+                            <Text style={styles.modalItemName}>{item.name}</Text>
+                            <Text style={styles.modalItemDial}>{item.dial}</Text>
+                          </TouchableOpacity>
+                        )}
+                      />
+                    )}
+                  </View>
+                </View>
+              </Modal>
 
               {/* Role Dropdown */}
               <TouchableOpacity
@@ -341,15 +482,9 @@ const Register = ({ navigation }) => {
                 </View>
               )}
 
-              {/* ═══════════════════════════════════════════════════
-                  CONTRACTOR ADDRESS SECTION
-                  Appears only when role === 'contractor'
-                  Verification is dispatched to Redux (verifyContractorAddress thunk)
-              ═══════════════════════════════════════════════════ */}
               {isContractor && (
                 <View style={styles.addressSection}>
 
-                  {/* Section header */}
                   <View style={styles.addressHeader}>
                     <View style={styles.addressHeaderLine} />
                     <Text style={styles.addressHeaderText}>Business Address</Text>
@@ -360,7 +495,6 @@ const Register = ({ navigation }) => {
                     Your business address must be verified before you can register.
                   </Text>
 
-                  {/* Street */}
                   <TextInput
                     label="Street Address" mode="outlined"
                     style={[styles.input, { marginTop: hp(1) }]}
@@ -372,7 +506,6 @@ const Register = ({ navigation }) => {
                     placeholder="e.g. 123 Main St" />
                   {errors.street && <Text style={styles.error}>{errors.street}</Text>}
 
-                  {/* City + State row */}
                   <View style={styles.rowFields}>
                     <View style={styles.rowFieldCity}>
                       <TextInput
@@ -400,7 +533,6 @@ const Register = ({ navigation }) => {
                     </View>
                   </View>
 
-                  {/* Zip Code */}
                   <TextInput
                     label="Zip Code" mode="outlined"
                     style={[styles.input, { marginTop: hp(1) }]}
@@ -413,7 +545,6 @@ const Register = ({ navigation }) => {
                     maxLength={10} />
                   {errors.zipcode && <Text style={styles.error}>{errors.zipcode}</Text>}
 
-                  {/* Verify Button */}
                   <TouchableOpacity
                     style={[styles.verifyButton, getVerifyButtonStyle()]}
                     onPress={handleVerifyAddress}
@@ -429,12 +560,10 @@ const Register = ({ navigation }) => {
                     )}
                   </TouchableOpacity>
 
-                  {/* Address-level error (local or from Redux) */}
                   {(errors.address || verifyError) ? (
                     <Text style={styles.error}>{errors.address || verifyError}</Text>
                   ) : null}
 
-                  {/* Success banner */}
                   {verifyStatus === 'success' && (
                     <View style={styles.verifiedBanner}>
                       <Text style={styles.verifiedBannerIcon}>📍</Text>
@@ -445,7 +574,6 @@ const Register = ({ navigation }) => {
                     </View>
                   )}
 
-                  {/* Failed hint */}
                   {verifyStatus === 'failed' && (
                     <View style={styles.failedBanner}>
                       <Text style={styles.failedBannerText}>
@@ -456,15 +584,19 @@ const Register = ({ navigation }) => {
                 </View>
               )}
 
-              {/* Submit */}
+              {/* Submit — isFormComplete is a useMemo boolean, not a function call */}
               <TouchableOpacity
                 style={[
                   styles.submitButton,
+                  { backgroundColor: isFormComplete ? '#E53935' : '#DAD3D3' },
                   registrationLoading && styles.submitButtonDisabled,
                 ]}
                 onPress={callAPI}
                 disabled={registrationLoading}>
-                <Text style={styles.submitText}>
+                <Text style={[
+                  styles.submitText,
+                  { color: isFormComplete ? '#FFFFFF' : '#5A5A5A' },
+                ]}>
                   {registrationLoading ? 'Submitting...' : 'Submit'}
                 </Text>
               </TouchableOpacity>
@@ -479,6 +611,7 @@ const Register = ({ navigation }) => {
             </View>
           </View>
         </ScrollView>
+       </KeyboardAvoidingView>
       </LinearGradient>
     </ImageBackground>
   );
@@ -590,17 +723,90 @@ const styles = StyleSheet.create({
 
   // ── Submit ───────────────────────────────────────────────────────────────────
   submitButton: {
-    backgroundColor: '#DAD3D3', paddingVertical: hp(1.8), borderRadius: 8,
+    paddingVertical: hp(1.8), borderRadius: 8,
     alignItems: 'center', justifyContent: 'center', marginTop: hp(2.5), minHeight: hp(6),
   },
   submitButtonDisabled: { opacity: 0.7 },
-  submitText: { color: '#5A5A5A', fontSize: hp(2), fontFamily: getFontFamily('medium') },
+  submitText: { fontSize: hp(2), fontFamily: getFontFamily('medium') },
   bottomTextContainer: {
     flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
     marginTop: hp(1), marginBottom: hp(2),
   },
   bottomText: { fontSize: hp(1.8), color: '#6C6C6C', fontFamily: getFontFamily('regular') },
   loginLink: { fontSize: hp(1.8), color: Colors.black, fontFamily: getFontFamily('bold') },
+
+  // ── Phone row ────────────────────────────────────────────────────────────────
+  phoneRow: { flexDirection: 'row', alignItems: 'center', gap: wp(2) },
+  countryCodeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: wp(1),
+    height: hp(6.5),
+    paddingHorizontal: wp(2.5),
+    borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8,
+    backgroundColor: '#FFFFFF', minWidth: wp(26),
+  },
+  countryCodeBtnError: { borderColor: '#FF4444' },
+  countryFlag: {
+    fontSize: hp(2.6),
+    lineHeight: hp(3.2),
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  countryDial: {
+    fontSize: hp(1.8), color: '#000',
+    fontFamily: getFontFamily('medium'),
+    includeFontPadding: false,
+  },
+  phoneInput: {
+    flex: 1,
+    height: hp(6.5),
+    borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: wp(3),
+    fontSize: hp(1.9), color: '#000',
+    fontFamily: getFontFamily('regular'),
+  },
+  phoneInputError: { borderColor: '#FF4444' },
+
+  // ── Country Modal ─────────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    maxHeight: '75%', paddingBottom: hp(3),
+  },
+  modalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: wp(5), paddingVertical: hp(2),
+    borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+  },
+  modalTitle: {
+    fontSize: hp(2), fontWeight: '600', color: '#1F2D3D',
+    fontFamily: getFontFamily('semiBold'),
+  },
+  modalClose: { fontSize: hp(2.2), color: '#666', paddingHorizontal: 4 },
+  modalSearchWrapper: { paddingHorizontal: wp(4), paddingVertical: hp(1.2) },
+  modalSearchInput: {
+    height: hp(5.2), borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8,
+    paddingHorizontal: wp(3), fontSize: hp(1.8), color: '#000',
+    backgroundColor: '#F8F8F8',
+  },
+  modalItem: {
+    flexDirection: 'row', alignItems: 'center', gap: wp(3),
+    paddingVertical: hp(1.3), paddingHorizontal: wp(5),
+    borderBottomWidth: 0.5, borderBottomColor: '#F4F4F4',
+  },
+  modalItemActive: { backgroundColor: '#F0F4FF' },
+  modalItemFlag: { fontSize: hp(2.2), width: wp(7) },
+  modalItemName: {
+    flex: 1, fontSize: hp(1.8), color: '#1F2D3D',
+    fontFamily: getFontFamily('regular'),
+  },
+  modalItemDial: { fontSize: hp(1.7), color: '#666', fontFamily: getFontFamily('regular') },
+  modalLoader: { alignItems: 'center', paddingVertical: hp(5), gap: 12 },
+  modalLoaderText: {
+    fontSize: hp(1.7), color: '#666', fontFamily: getFontFamily('regular'),
+  },
 });
 
 export default Register;

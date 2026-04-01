@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "dwell.app"
-               BlueprintName = "dwell"
-               ReferencedContainer = "container:dwell.xcodeproj">
+               BuildableName = "Dwell.app"
+               BlueprintName = "Dwell"
+               ReferencedContainer = "container:Dwell.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -35,7 +35,7 @@
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
                BuildableName = "dwellTests.xctest"
                BlueprintName = "dwellTests"
-               ReferencedContainer = "container:dwell.xcodeproj">
+               ReferencedContainer = "container:Dwell.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "dwell.app"
-            BlueprintName = "dwell"
-            ReferencedContainer = "container:dwell.xcodeproj">
+            BuildableName = "Dwell.app"
+            BlueprintName = "Dwell"
+            ReferencedContainer = "container:Dwell.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "dwell.app"
-            BlueprintName = "dwell"
-            ReferencedContainer = "container:dwell.xcodeproj">
+            BuildableName = "Dwell.app"
+            BlueprintName = "Dwell"
+            ReferencedContainer = "container:Dwell.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

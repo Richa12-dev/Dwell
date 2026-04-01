@@ -7,7 +7,7 @@ import { clearLoginData } from './loginSlice';
 import { Buffer } from 'buffer';
 
 // const navigation = useNavigation();
-const base_url = Config.API_URL;
+const base_url = Config.Base_url;
 
 
 
@@ -72,8 +72,10 @@ export const login = createAsyncThunk(
         
             if (!landlordId && !tenantId && !contractorId) {
               const groups = payload['cognito:groups'] || [];
-              
-              if (groups.includes('landlord')) {
+                if (groups.includes('admin')) {
+                  role = 'admin';
+                    
+                } else if(groups.includes('landlord')) {
     
                 landlordId = payload.sub;
                 role = 'landlord';
@@ -110,7 +112,9 @@ export const login = createAsyncThunk(
 
         // Navigate based on role/IDs
         setTimeout(() => {
-          if (tenantId) {
+            if (role === 'admin') {
+            resetRoot('AdminDashboard');
+            } else if(tenantId) {
             resetRoot('BottomFotter');
           } else if (landlordId) {
             resetRoot('ProfileFooter');
@@ -330,7 +334,8 @@ export const confirmSignUp = createAsyncThunk(
 
       if (response.ok) {
         Toast.show('Email verification successful! You can now login.');
-        navigate('Login');
+//        navigate('Login');
+          navigate('Terms&Conditions', { userType: otpData.role || 'tenant' });
         return data;
       } else {
         const errorMessage = data?.message || data?.error || 'OTP verification failed';
@@ -1006,6 +1011,43 @@ export const verifyContractorAddress = createAsyncThunk(
       Toast.show(msg);
      return rejectWithValue(msg);
    }
+  }
+);
+
+export const fetchCountries = createAsyncThunk(
+  'loginSlice/fetchCountries',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await fetch(
+        'https://restcountries.com/v3.1/all?fields=name,flags,idd'
+      );
+ 
+      if (!response.ok) {
+        return rejectWithValue('Failed to fetch countries');
+      }
+ 
+      const data = await response.json();
+ 
+      const countries = data
+        .map(c => ({
+          name: c.name.common,
+          flag: c.flags?.emoji ?? '',
+          dial: c.idd?.root
+            ? c.idd.root + (c.idd.suffixes?.length === 1 ? c.idd.suffixes[0] : '')
+            : '',
+        }))
+        .filter(c => c.dial && c.name)
+        .sort((a, b) => {
+          if (a.name === 'United States') return -1;
+          if (b.name === 'United States') return 1;
+          return a.name.localeCompare(b.name);
+        });
+ 
+      return countries;
+    } catch (err) {
+      console.warn('fetchCountries error:', err);
+      return rejectWithValue(err.message || 'Network error');
+    }
   }
 );
 

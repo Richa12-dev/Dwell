@@ -9,6 +9,7 @@
 export default {
   transparent: 'rgba(0,0,0,0)',
     backgroundColor:'rgba(255, 255, 255, 0.7)',
+    lightRed:'rgba(229, 57, 53, 0.25)',
   // Example colors:
   white: '#ffffff',
   clr66: '#666666',

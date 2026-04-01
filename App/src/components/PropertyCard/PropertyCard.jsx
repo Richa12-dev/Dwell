@@ -1,23 +1,31 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { Box, Text, VStack, HStack, Image, Pressable } from 'native-base';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+import {
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  View,
+  Text,
+  Image,
+  Pressable,
+} from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import {
   heightPercentageToDP as hp,
   widthPercentageToDP as wp,
 } from 'react-native-responsive-screen';
-import { AppIcon } from "../../components/AppIcon";
-import { icons } from "../../Assets";
+import { AppIcon } from '../../components/AppIcon';
+import { icons } from '../../Assets';
+import { useNavigation } from '@react-navigation/native';
 
 const PropertyCard = React.memo(
   ({ property, onViewDetails, onEdit, onDelete, onToggleFavorite, isFavorite }) => {
-    
+      const navigation = useNavigation();
+
     const propertyInfo = useMemo(
       () => ({
-        bedrooms: property?.bedrooms || "N/A",
-        bathrooms: property?.bathrooms || "N/A",
-        rent: property?.monthly_rent ? `$${property.monthly_rent}` : "$0",
+        bedrooms: property?.bedrooms || 'N/A',
+        bathrooms: property?.bathrooms || 'N/A',
+        rent: property?.monthly_rent ? `$${property.monthly_rent}` : '$0',
       }),
       [property]
     );
@@ -28,151 +36,130 @@ const PropertyCard = React.memo(
       if (property?.city) parts.push(property.city);
       if (property?.state) parts.push(`(${property.state})`);
       if (property?.zipcode) parts.push(property.zipcode);
-      return parts.join(", ") || "No address provided";
+      return parts.join(', ') || 'No address provided';
     }, [property]);
 
     const renderPropertyImage = useMemo(() => {
-  try {
-    const image =
-      property?.media?.photos_preview?.[0]?.url ||
-      property?.media?.photos?.[0]?.url ||
-      property?.images?.[0] ||
-      property?.image_urls?.[0] ||
-      null;
+      try {
+        const image =
+          property?.media?.photos_preview?.[0]?.url ||
+          property?.media?.photos?.[0]?.url ||
+          property?.images?.[0] ||
+          property?.image_urls?.[0] ||
+          null;
 
-    if (!image) {
-      return (
-        <Image
-          source={require("../../Assets/Image/empty-box.png")}
-          alt="Property"
-          w="100%"
-          h="100%"
-          resizeMode="cover"
-        />
-      );
-    }
+        if (!image) {
+          return (
+            <Image
+              source={require('../../Assets/Image/empty-box.png')}
+              alt="Property"
+              style={styles.propertyImage}
+              resizeMode="cover"
+            />
+          );
+        }
 
-    // DO NOT MODIFY PRESIGNED URL
-    const uri = image.trim();
+        const uri = image.trim();
 
-    return (
-      <Image
-        source={{ uri }}
-        alt="Property"
-        w="100%"
-        h="100%"
-        resizeMode="cover"
-        fallbackSource={require("../../Assets/Image/empty-box.png")}
-      />
-    );
-  } catch (error) {
-    return (
-      <Image
-        source={require("../../Assets/Image/empty-box.png")}
-        alt="Property"
-        w="100%"
-        h="100%"
-        resizeMode="cover"
-      />
-    );
-  }
-}, [property?.media, property?.images, property?.image_urls]);
+        return (
+          <Image
+            source={{ uri }}
+            alt="Property"
+            style={styles.propertyImage}
+            resizeMode="cover"
+            onError={() => {}}
+          />
+        );
+      } catch (error) {
+        return (
+          <Image
+            source={require('../../Assets/Image/empty-box.png')}
+            alt="Property"
+            style={styles.propertyImage}
+            resizeMode="cover"
+          />
+        );
+      }
+    }, [property?.media, property?.images, property?.image_urls]);
 
+    const propertyId =
+      property?.property_id || property?.propertyId || property?.id || property?.ID;
+    const name = property?.name || 'Apartment';
 
-    // ✅ FIXED: Get property ID correctly
-    const propertyId = property?.property_id || property?.propertyId || property?.id || property?.ID;
-    const propertyType = property?.property_type || "Apartment";
-        const name = property?.name || "Apartment";
-    name
-
-    // ✅ FIXED: Better occupation status logic
     const isOccupied =
-      property?.availability === "occupied" ||
-      property?.availability_status === "occupied" ||
+      property?.availability === 'occupied' ||
+      property?.availability_status === 'occupied' ||
       property?.is_available === false ||
       (property?.tenants && Array.isArray(property.tenants) && property.tenants.length > 0);
 
-    const status = isOccupied ? "Occupied" : "Vacant";
+    const status = isOccupied ? 'Occupied' : 'Vacant';
 
-    // ✅ FIXED: Handle delete with confirmation
     const handleDelete = () => {
       if (!propertyId) {
         Alert.alert('Error', 'Invalid property ID');
         return;
       }
-
       Alert.alert(
         'Delete Property',
         `Are you sure you want to delete "${property?.name || 'this property'}"? This action cannot be undone.`,
         [
-          {
-            text: 'Cancel',
-            style: 'cancel'
-          },
+          { text: 'Cancel', style: 'cancel' },
           {
             text: 'Delete',
             style: 'destructive',
             onPress: () => {
-              console.log('🗑️ Deleting property:', propertyId);
-              // ✅ Pass the entire property object
               onDelete(property);
-            }
-          }
+            },
+          },
         ],
         { cancelable: true }
       );
     };
 
     return (
-      <Pressable onPress={() => onViewDetails(property)} mb={4}>
-        <Box style={styles.cardContainer}>
-          <HStack height={hp(20)}>
-            
+      <Pressable onPress={() => onViewDetails(property)} style={styles.pressable}>
+        <View style={styles.cardContainer}>
+          <View style={[styles.row, { height: hp(20) }]}>
+
             {/* LEFT – IMAGE */}
-            <Box style={styles.imageContainer}>
+            <View style={styles.imageContainer}>
               {renderPropertyImage}
 
               {/* FAVORITE BUTTON */}
               <Pressable
                 style={styles.favoriteButton}
                 onPress={(e) => {
-                  // ✅ Prevent card press event
                   e?.stopPropagation?.();
                   onToggleFavorite(propertyId);
                 }}
               >
-                {/* ✅ FIXED: Safe icon rendering */}
                 {icons?.redHeart && icons?.heart && (
                   <AppIcon name={isFavorite ? icons.redHeart : icons.heart} size={24} />
                 )}
               </Pressable>
-            </Box>
+            </View>
 
             {/* RIGHT – DETAILS */}
-            <VStack style={styles.contentContainer}>
-              
-              {/* Property Type with Status Badge */}
-           <HStack alignItems="center" justifyContent="space-between">
-  {/* NAME */}
-  <Text
-    style={[styles.propertyType, { flex: 1 }]}
-    numberOfLines={3}
-    ellipsizeMode="tail"
-  >
-    {name}
-  </Text>
+            <View style={styles.contentContainer}>
 
-  {/* STATUS BADGE */}
-  <Box
-    style={[
-      styles.statusBadge,
-      status === "Occupied" ? styles.occupied : styles.vacant,
-    ]}
-  >
-    <Text style={styles.statusText}>{status}</Text>
-  </Box>
-</HStack>
-
+              {/* Name + Status Badge */}
+              <View style={styles.row}>
+                <Text
+                  style={[styles.propertyType, { flex: 1 }]}
+                  numberOfLines={3}
+                  ellipsizeMode="tail"
+                >
+                  {name}
+                </Text>
+                <View
+                  style={[
+                    styles.statusBadge,
+                    status === 'Occupied' ? styles.occupied : styles.vacant,
+                  ]}
+                >
+                  <Text style={styles.statusText}>{status}</Text>
+                </View>
+              </View>
 
               {/* Address */}
               <Text style={styles.address} numberOfLines={1}>
@@ -180,26 +167,25 @@ const PropertyCard = React.memo(
               </Text>
 
               {/* INFO ROW */}
-              <HStack style={styles.infoRow}>
-                <VStack style={styles.infoItem}>
+              <View style={styles.infoRow}>
+                <View style={styles.infoItem}>
                   <Text style={styles.infoLabel}>No. Tenant</Text>
                   <Text style={styles.infoValue}>
                     {property?.tenant_count ||
-                     property?.tenants?.length ||
-                     (isOccupied ? "01" : "00")}
+                      property?.tenants?.length ||
+                      (isOccupied ? '01' : '00')}
                   </Text>
-                </VStack>
+                </View>
 
-                <VStack style={styles.infoItem}>
+                <View style={styles.infoItem}>
                   <Text style={styles.infoLabel}>Rent</Text>
-                  <Text style={styles.infoValue}>
-                    {propertyInfo.rent}/month
-                  </Text>
-                </VStack>
-              </HStack>
+                  <Text style={styles.infoValue}>{propertyInfo.rent}/month</Text>
+                </View>
+              </View>
 
               {/* ACTION ROW */}
-              <HStack style={styles.actionRow}>
+              <View style={styles.actionRow}>
+              
                 <TouchableOpacity
                   style={styles.viewDetailsButton}
                   onPress={(e) => {
@@ -209,6 +195,19 @@ const PropertyCard = React.memo(
                 >
                   <Text style={styles.viewDetailsText}>View Details</Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+  style={styles.iconButton}
+  onPress={(e) => {
+    e?.stopPropagation?.();
+    navigation.navigate('PropertyDocuments', { propertyId, propertyName: name });
+  }}
+>
+  {icons?.document ? (
+    <AppIcon name={icons.document} size={24} />
+  ) : (
+    <MaterialIcons name="description" size={24} color="#666" />
+  )}
+</TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.iconButton}
@@ -217,7 +216,6 @@ const PropertyCard = React.memo(
                     onEdit(property);
                   }}
                 >
-                  {/* ✅ FIXED: Safe icon rendering */}
                   {icons?.editIcon ? (
                     <AppIcon name={icons.editIcon} size={24} />
                   ) : (
@@ -232,127 +230,139 @@ const PropertyCard = React.memo(
                     handleDelete();
                   }}
                 >
-                  {/* ✅ FIXED: Safe icon rendering with fallback */}
                   {icons?.deleteIcon ? (
                     <AppIcon name={icons.deleteIcon} size={24} />
                   ) : (
                     <MaterialIcons name="delete" size={24} color="#E53935" />
                   )}
                 </TouchableOpacity>
-              </HStack>
+                
+                
+              </View>
 
-            </VStack>
-          </HStack>
-        </Box>
+            </View>
+          </View>
+        </View>
       </Pressable>
     );
   }
 );
 
 const styles = StyleSheet.create({
+  pressable: {
+    marginBottom: 16,
+  },
   cardContainer: {
     width: wp(92),
     height: hp(21),
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
     borderRadius: 16,
-    overflow: "hidden",
-    shadowColor: "#000",
+    overflow: 'hidden',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
   },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   imageContainer: {
     width: wp(35),
-    height: "100%",
-    position: "relative",
+    height: '100%',
+    position: 'relative',
+  },
+  propertyImage: {
+    width: '100%',
+    height: '100%',
   },
   favoriteButton: {
-    position: "absolute",
+    position: 'absolute',
     top: 8,
     right: 8,
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   contentContainer: {
     flex: 1,
     padding: 10,
-    justifyContent: "space-between",
+    justifyContent: 'space-between',
   },
   propertyType: {
     fontSize: 18,
-    fontWeight: "700",
-    color: "#1a1a1a",
+    fontWeight: '700',
+    color: '#1a1a1a',
     marginRight: 8,
-      },
+  },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
   },
   occupied: {
-    backgroundColor: "#E53935",
+    backgroundColor: '#E53935',
   },
   vacant: {
-    backgroundColor: "#4CAF50",
+    backgroundColor: '#4CAF50',
   },
   statusText: {
-    color: "white",
+    color: 'white',
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   address: {
     fontSize: 12,
-    color: "#666",
+    color: '#666',
     marginTop: 2,
     marginBottom: 12,
   },
   infoRow: {
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 20,
     marginBottom: 12,
   },
   infoItem: {
-    flexDirection: "column",
+    flexDirection: 'column',
   },
   infoLabel: {
     fontSize: 11,
-    color: "#666",
+    color: '#666',
   },
   infoValue: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#1a1a1a",
+    fontWeight: '600',
+    color: '#1a1a1a',
   },
   actionRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   viewDetailsButton: {
-    backgroundColor: "#E53935",
-    paddingHorizontal: 16,
+    backgroundColor: '#E53935',
+    paddingHorizontal: 8,
     paddingVertical: 8,
     borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   viewDetailsText: {
-    color: "white",
-    fontSize: 13,
-    fontWeight: "600",
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '600',
   },
   iconButton: {
-    width: 36,
-    height: 36,
+    width: 30,
+    height: 30,
     borderRadius: 8,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

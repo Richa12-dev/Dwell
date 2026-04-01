@@ -16,7 +16,7 @@ const initialState = {
   landlordProperties: [],
   tenantProperties: [],
   currentProperty: null,
-  currentTenant: null,
+  currentTenants: [],
   loading: false,
   tenantLoading: false,
   error: null,
@@ -49,7 +49,7 @@ const propertiesSlice = createSlice({
   reducers: {
     clearError: (state) => { state.error = null; },
     clearCurrentProperty: (state) => { state.currentProperty = null; },
-    clearCurrentTenant: (state) => { state.currentTenant = null; },
+      clearCurrentTenant: (state) => { state.currentTenants = []; },
 
     updatePropertyLocally: (state, action) => {
       const update = (arr, payload) => {
@@ -154,8 +154,15 @@ const propertiesSlice = createSlice({
         state.loading = false;
         const updatedProperty = payload.property || payload;
 
-        // ✅ FIXED: resolve the ID from all possible field names
-        const updatedId = resolveId(updatedProperty) || payload.propertyId;
+        // ✅ FIXED: prefer explicit payload.propertyId (always sent by service)
+        //    before trying to resolve from the property object itself,
+        //    because the backend sometimes doesn't echo property_id back
+        const updatedId = payload.propertyId || resolveId(updatedProperty);
+
+        // ✅ Stamp property_id onto the object so future resolveId calls work
+        if (updatedId && !updatedProperty.property_id) {
+          updatedProperty.property_id = updatedId;
+        }
 
         const updateArray = (arr) => {
           const index = arr.findIndex((p) => resolveId(p) === updatedId);
@@ -245,8 +252,13 @@ const propertiesSlice = createSlice({
       })
       .addCase(getTenantById.fulfilled, (state, { payload }) => {
         state.tenantLoading = false;
-        state.currentTenant = payload;
+        if (!payload) return;
+        const exists = state.currentTenants.find(
+          t => t.id && payload.id && t.id === payload.id
+        );
+        if (!exists) state.currentTenants.push(payload);
       })
+      
       .addCase(getTenantById.rejected, (state, { payload, error }) => {
         state.tenantLoading = false;
         state.error = payload || error.message || 'Failed to load tenant';
@@ -284,7 +296,7 @@ export const propertiesSelectors = {
       landlordProperties: s.landlordProperties || [],
       tenantProperties: s.tenantProperties || [],
       currentProperty: s.currentProperty,
-      currentTenant: s.currentTenant,
+      currentTenant: s.currentTenants || [],
       error: s.error,
       totalProperties: s.totalProperties || 0,
       totalUnits: s.totalUnits || 0,
@@ -313,11 +325,11 @@ export const propertiesSelectors = {
     (s) => s.currentProperty
   ),
 
-  getCurrentTenant: createSelector(
-    [selectPropertiesState],
-    (s) => s.currentTenant
-  ),
-
+    getCurrentTenant: createSelector(
+      [selectPropertiesState],
+      (s) => s.currentTenants || []   
+    ),
+    
   isLoading: createSelector(
     [selectPropertiesState],
     (s) => s.loading || false

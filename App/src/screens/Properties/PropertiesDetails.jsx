@@ -12,6 +12,7 @@ import {
   StatusBar,
   ActivityIndicator,
   Linking,
+   FlatList,
 } from "react-native";
 
 import MaterialIcon from "react-native-vector-icons/MaterialIcons";
@@ -31,6 +32,9 @@ import { openLocationInMaps } from "../../Redux/Properties/services";
 import { loginDataSelectors } from "../../Redux/Login/loginSlice";
 import { propertiesSelectors, clearCurrentTenant } from "../../Redux/Properties/propertiesSlice";
 import { getTenantById } from "../../Redux/Properties/services";
+import { Colors } from "../../Theme";
+import { getFontFamily } from "../../utils";
+
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -40,8 +44,25 @@ const PropertiesDetails = ({ route, navigation }) => {
   
   const { userData } = useSelector(loginDataSelectors.getLoginStatus);
   const accessToken = useSelector(loginDataSelectors.getAccessToken);
-  const currentTenant = useSelector(propertiesSelectors.getCurrentTenant);
+  const currentTenantRaw = useSelector(propertiesSelectors.getCurrentTenant);
+  const currentTenants = Array.isArray(currentTenantRaw)
+    ? currentTenantRaw
+    : currentTenantRaw
+    ? [currentTenantRaw]
+    : [];
+
   const tenantLoading = useSelector(propertiesSelectors.isTenantLoading);
+  const [pendingTenants, setPendingTenants] = useState(0);
+
+  const fallbackTenants = (property?.tenant_names || []).map((name, i) => ({
+    id: property?.tenant_ids?.[i] || `fallback-${i}`,
+    name,
+    email: property?.tenant_emails?.[i] || null,
+    phone: null,
+    avatar: null,
+  }));
+
+  const displayTenants = currentTenants.length > 0 ? currentTenants : fallbackTenants;
 
   const contactEmail = userData?.email || null;
   const contactPhone = userData?.phoneNumber || null;
@@ -60,34 +81,39 @@ const PropertiesDetails = ({ route, navigation }) => {
         media_photos_length: property.media?.photos?.length,
         media_preview_length: property.media?.photos_preview?.length,
       });
-      
-      // Log the actual image data
-      console.log('📸 Image URLs:', property.image_urls);
-      console.log('📸 Images:', property.images);
-      console.log('📸 Media:', property.media);
     }
   }, [property]);
 
- useEffect(() => {
+useEffect(() => {
   dispatch(clearCurrentTenant());
+  setPendingTenants(0);
 
   const fetchTenantData = async () => {
+    const tenantIds = property?.tenant_ids;
     const isOccupied = property?.availability !== 'available';
-    const hasTenantId = property?.tenant_ids?.length > 0;
 
-    if (!isOccupied || !hasTenantId || !accessToken) return;
+    console.log('🔍 Fetch guard check:', { isOccupied, tenantIds, hasToken: !!accessToken });
 
-    // ✅ Use tenant_ids[0] — a real UUID the API accepts
-    const tenantId = property.tenant_ids[0];
-    console.log('🔍 Fetching tenant data for ID:', tenantId);
+    if (!isOccupied || !Array.isArray(tenantIds) || tenantIds.length === 0 || !accessToken) {
+    
+      return;
+    }
 
-    dispatch(getTenantById({ tenantId, token: accessToken }));
+    setPendingTenants(tenantIds.length);
+
+    for (const tenantId of tenantIds) {
+      dispatch(getTenantById({ tenantId, token: accessToken }))
+        .finally(() => {
+          setPendingTenants((prev) => Math.max(0, prev - 1));
+        });
+    }
   };
 
   if (property) fetchTenantData();
-
   return () => { dispatch(clearCurrentTenant()); };
-}, [property?.property_id, property?.tenant_ids, property?.availability, accessToken, dispatch]);
+}, [property?.property_id]);
+
+
 
 
   // ✅ Fixed image source handler - handles all formats including S3 keys
@@ -463,96 +489,87 @@ const PropertiesDetails = ({ route, navigation }) => {
           )}
 
           {/* TENANT INFORMATION - Using Redux state */}
-         {property.availability !== 'available' &&
- (property.tenant_ids?.length > 0 || property.tenant_emails?.length > 0) && (
-            <View style={styles.glassCard}>
-              <Text style={styles.sectionTitle}>Tenant Information</Text>
+        {property.availability !== 'available' &&
+  (
+  <View style={styles.glassCard}>
+    <Text style={styles.sectionTitle}>Tenant Information</Text>
 
-              {tenantLoading ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="small" color="#EF4444" />
-                  <Text style={styles.loadingText}>Loading tenant information...</Text>
-                </View>
-              ) : currentTenant ? (
-                <View style={styles.tenantRow}>
-                  <View style={styles.tenantLeft}>
-                    <View style={styles.tenantAvatar}>
-                      {currentTenant.avatar ? (
-                        <Image
-                          source={{ uri: currentTenant.avatar }}
-                          style={styles.avatarImage}
-                        />
-                      ) : (
-                        <Text style={styles.avatarText}>
-                          {currentTenant.name?.charAt(0)?.toUpperCase() || "T"}
-                        </Text>
-                      )}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.tenantName}>{currentTenant.name}</Text>
-                      <Text style={styles.tenantHouse}>Current Tenant</Text>
-                      {currentTenant.lease_start && (
-                        <Text style={styles.tenantLease}>
-                          Lease: {new Date(currentTenant.lease_start).toLocaleDateString()}
-                          {currentTenant.lease_end && ` - ${new Date(currentTenant.lease_end).toLocaleDateString()}`}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                  <View style={styles.tenantActions}>
-                    {currentTenant.phone && (
-                      <TouchableOpacity
-                        style={styles.iconButton}
-                        onPress={() => handleCallTenant(currentTenant.phone)}
-                      >
-                        <Ionicons name="call-outline" size={18} color="#111827" />
-                      </TouchableOpacity>
-                    )}
-                    {currentTenant.email && (
-                      <TouchableOpacity
-                        style={styles.iconButton}
-                        onPress={() => handleEmailTenant(currentTenant.email)}
-                      >
-                        <Ionicons name="mail-outline" size={18} color="#111827" />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-            ) : (
-  // Fallback: show basic info from API arrays directly
-  <View style={styles.tenantRow}>
-    <View style={styles.tenantLeft}>
-      <View style={styles.tenantAvatar}>
-        <Text style={styles.avatarText}>
-          {property.tenant_names?.[0]?.charAt(0)?.toUpperCase() || 'T'}
-        </Text>
+    {(tenantLoading || pendingTenants > 0) && displayTenants.length === 0 ? (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="small" color="#EF4444" />
+        <Text style={styles.loadingText}>Loading tenant information...</Text>
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.tenantName}>
-          {property.tenant_names?.[0] || 'Tenant'}
-        </Text>
-        <Text style={styles.tenantHouse}>Current Tenant</Text>
-        {property.tenant_emails?.[0] && (
-          <Text style={styles.tenantLease}>
-            {property.tenant_emails[0]}
+    ) : (
+      <FlatList
+        data={displayTenants}
+        keyExtractor={(item) => item.id?.toString()}
+        scrollEnabled={false}
+        ItemSeparatorComponent={() => (
+          <View style={{ height: 1, backgroundColor: '#F3F4F6', marginVertical: 4 }} />
+        )}
+        ListEmptyComponent={() => (
+          <Text style={{ color: '#6B7280', fontSize: 14 }}>
+            No tenant information available
           </Text>
         )}
-      </View>
-    </View>
-    <View style={styles.tenantActions}>
-      {property.tenant_emails?.[0] && (
-        <TouchableOpacity
-          style={styles.iconButton}
-          onPress={() => handleEmailTenant(property.tenant_emails[0])}
-        >
-                        <AppIcon name={icons.email} size={hp(1.5)} color="white" />
-        </TouchableOpacity>
-      )}
-    </View>
+        renderItem={({ item: tenant }) => (
+          <View style={styles.tenantRow}>
+            <View style={styles.tenantLeft}>
+
+              {/* Avatar */}
+              <View style={styles.tenantAvatar}>
+                {tenant.avatar ? (
+                  <Image
+                    source={{ uri: tenant.avatar }}
+                    style={styles.avatarImage}
+                  />
+                ) : (
+                  <Text style={styles.avatarText}>
+                    {tenant.name?.charAt(0)?.toUpperCase() || "T"}
+                  </Text>
+                )}
+              </View>
+
+              {/* Tenant Info */}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.tenantName}>{tenant.name}</Text>
+                <Text style={styles.tenantHouse}>Current Tenant</Text>
+                {tenant.email && (
+                  <Text style={styles.tenantLease}>{tenant.email}</Text>
+                )}
+                {tenant.lease_start && (
+                  <Text style={styles.tenantLease}>
+                    Lease: {new Date(tenant.lease_start).toLocaleDateString()}
+                    {tenant.lease_end
+                      ? ` - ${new Date(tenant.lease_end).toLocaleDateString()}`
+                      : ''}
+                  </Text>
+                )}
+              </View>
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.tenantActions}>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => handleEmailTenant(tenant.email)}
+              >
+               
+                <AppIcon name={icons.email} size={hp(2.2)} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => handleCallTenant(tenant.phone)}
+              >
+                <AppIcon name={icons.phone} size={hp(2.2)} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      />
+    )}
   </View>
 )}
-            </View>
-          )}
 
           {/* CONTACT INFORMATION */}
           {(contactEmail || contactPhone) && (
@@ -811,9 +828,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   rentPrice: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "bold",
-    color: "#111827",
+    color: Colors.black,
   },
   utilitiesText: {
     fontSize: 12,
