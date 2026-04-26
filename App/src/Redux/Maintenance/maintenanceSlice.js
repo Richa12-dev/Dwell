@@ -1,29 +1,71 @@
 // src/redux/slices/Maintenance/maintenanceSlice.js
-import { createSlice, createSelector } from "@reduxjs/toolkit";
+import { createSlice, createSelector } from '@reduxjs/toolkit';
 import {
   createMaintenanceRequest,
   getMaintenanceRequests,
   getMaintenanceDetails,
   updateMaintenanceStatus,
-  escalateMaintenanceRequest,
-} from "./services";
+  getMaintenanceByStatus,
+  getMaintenanceStatistics,
+  getMaintenanceByTenant,
+  // escalateMaintenanceRequest,  // uncomment when new API adds /escalate
+} from './services';   // ← new Node.js services file
 
 const initialState = {
-  maintenanceRequests: [],
-  currentRequest: null,
-  loading: false,
-  detailsLoading: false,
-  error: null,
-  totalRequests: 0,
-  openRequests: 0,
-  closedRequests: 0,
-  lastUpdated: null,
-  inProgressRequests: 0,
+  maintenanceRequests:  [],
+  currentRequest:       null,
+  loading:              false,
+  detailsLoading:       false,
+  statisticsLoading:    false,
+  error:                null,
+  totalRequests:        0,
+  openRequests:         0,
+  closedRequests:       0,
+  inProgressRequests:   0,
+  lastUpdated:          null,
+  // New API provides a dedicated statistics object
+  statistics: {
+    new:        0,
+    inProgress: 0,
+    completed:  0,
+    total:      0,
+  },
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Derive summary counts from a flat ticket array */
+const deriveCounts = (requests) => ({
+  totalRequests:      requests.length,
+  openRequests:       requests.filter(
+    (r) => r.status === 'pending'
+  ).length,
+  inProgressRequests: requests.filter(
+    (r) => r.status === 'in_progress'
+  ).length,
+  closedRequests:     requests.filter(
+    (r) => r.status === 'completed' || r.status === 'cancelled'
+  ).length,
+});
+
+/** Replace or insert a ticket in the array by id */
+const upsertInArray = (array, updated) => {
+  const idx = array.findIndex(
+    (r) => r.id === updated.id || r.ticket_id === updated.ticket_id
+  );
+  if (idx !== -1) {
+    array[idx] = { ...array[idx], ...updated };
+  } else {
+    array.push(updated);
+  }
+};
+
+// ─── Slice ────────────────────────────────────────────────────────────────────
+
 const maintenanceSlice = createSlice({
-  name: "maintenance",
+  name: 'maintenance',
   initialState,
+
   reducers: {
     clearError: (state) => {
       state.error = null;
@@ -31,171 +73,162 @@ const maintenanceSlice = createSlice({
     clearCurrentRequest: (state) => {
       state.currentRequest = null;
     },
+    /** Optimistically update a ticket in local state */
     updateRequestLocally: (state, { payload }) => {
-      const updateInArray = (array) => {
-        const index = array.findIndex(
-          (r) => r.ticket_id === payload.ticket_id || r.id === payload.id
-        );
-        if (index !== -1) {
-          array[index] = { ...array[index], ...payload };
-        }
-      };
-
-      updateInArray(state.maintenanceRequests);
-
+      upsertInArray(state.maintenanceRequests, payload);
       if (
         state.currentRequest &&
-        (state.currentRequest.ticket_id === payload.ticket_id ||
-          state.currentRequest.id === payload.id)
+        (state.currentRequest.id        === payload.id ||
+         state.currentRequest.ticket_id === payload.ticket_id)
       ) {
         state.currentRequest = { ...state.currentRequest, ...payload };
       }
     },
+    /** Re-compute derived counts from current list */
     calculateTotals: (state) => {
-      state.totalRequests = state.maintenanceRequests.length;
-      state.openRequests = state.maintenanceRequests.filter(
-        (r) =>
-          (r.status?.toLowerCase() === 'open' || r.status?.toLowerCase() === 'new') &&
-          r.contractor_assignment?.state !== 'ACCEPTED'
-      ).length;
-      state.inProgressRequests = state.maintenanceRequests.filter(
-        (r) =>
-          r.contractor_assignment?.state === 'ACCEPTED' &&
-          r.status?.toLowerCase() !== 'closed' &&
-          r.status?.toLowerCase() !== 'resolved'
-      ).length;
-      state.closedRequests = state.maintenanceRequests.filter(
-        (r) => r.status === "Closed" || r.status === "Resolved"
-      ).length;
+      const counts = deriveCounts(state.maintenanceRequests);
+      Object.assign(state, counts);
       state.lastUpdated = new Date().toISOString();
     },
   },
 
   extraReducers: (builder) => {
     builder
-      // Create maintenance request
+
+      // ── 1. Create ────────────────────────────────────────────────────────────
       .addCase(createMaintenanceRequest.pending, (state) => {
         state.loading = true;
-        state.error = null;
+        state.error   = null;
       })
       .addCase(createMaintenanceRequest.fulfilled, (state, { payload }) => {
         state.loading = false;
-        const newRequest = payload.request || payload.maintenanceRequest || payload;
-        state.maintenanceRequests.push(newRequest);
-        state.totalRequests = state.maintenanceRequests.length;
+        state.maintenanceRequests.push(payload);
+        Object.assign(state, deriveCounts(state.maintenanceRequests));
         state.lastUpdated = new Date().toISOString();
       })
       .addCase(createMaintenanceRequest.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || "Failed to create maintenance request";
+        state.error   = payload || error.message || 'Failed to create maintenance request';
       })
 
-      // Get all maintenance requests
+      // ── 2. List all ──────────────────────────────────────────────────────────
       .addCase(getMaintenanceRequests.pending, (state) => {
         state.loading = true;
-        state.error = null;
+        state.error   = null;
       })
       .addCase(getMaintenanceRequests.fulfilled, (state, { payload }) => {
-        state.loading = false;
-        state.maintenanceRequests = payload?.items || payload || [];
-        state.totalRequests = state.maintenanceRequests.length;
-        state.openRequests = state.maintenanceRequests.filter(
-          (r) => r.status !== "Closed" && r.status !== "Resolved"
-        ).length;
-        state.closedRequests = state.maintenanceRequests.filter(
-          (r) => r.status === "Closed" || r.status === "Resolved"
-        ).length;
+        state.loading             = false;
+        state.maintenanceRequests = Array.isArray(payload) ? payload : [];
+        Object.assign(state, deriveCounts(state.maintenanceRequests));
         state.lastUpdated = new Date().toISOString();
       })
       .addCase(getMaintenanceRequests.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || "Failed to fetch maintenance requests";
+        state.error   = payload || error.message || 'Failed to fetch maintenance requests';
       })
 
-      // ✅ Get maintenance details
+      // ── 3. Details ───────────────────────────────────────────────────────────
       .addCase(getMaintenanceDetails.pending, (state) => {
         state.detailsLoading = true;
-        state.error = null;
+        state.error          = null;
       })
       .addCase(getMaintenanceDetails.fulfilled, (state, { payload }) => {
         state.detailsLoading = false;
-        state.currentRequest = payload;
-        state.lastUpdated = new Date().toISOString();
+        // The GET /maintenance-tickets/:id endpoint may not return mediaFiles.
+        // Preserve them from the previous currentRequest (e.g. from create or list)
+        // so the media section in QueryDetails never loses its images.
+        state.currentRequest = {
+          ...payload,
+          mediaFiles: (payload?.mediaFiles?.length > 0)
+            ? payload.mediaFiles
+            : state.currentRequest?.mediaFiles || [],
+        };
+        state.lastUpdated    = new Date().toISOString();
       })
       .addCase(getMaintenanceDetails.rejected, (state, { payload, error }) => {
         state.detailsLoading = false;
-        state.error = payload || error.message || "Failed to fetch maintenance details";
+        state.error = payload || error.message || 'Failed to fetch maintenance details';
       })
 
-      // Update maintenance status
+      // ── 4. Update ────────────────────────────────────────────────────────────
       .addCase(updateMaintenanceStatus.pending, (state) => {
         state.loading = true;
-        state.error = null;
+        state.error   = null;
       })
       .addCase(updateMaintenanceStatus.fulfilled, (state, { payload }) => {
         state.loading = false;
-        const updated = payload.request || payload.maintenanceRequest || payload;
-
-        const updateInArray = (array) => {
-          const index = array.findIndex(
-            (r) => r.ticket_id === updated.ticket_id || r.id === updated.id
-          );
-          if (index !== -1) array[index] = { ...array[index], ...updated };
-        };
-
-        updateInArray(state.maintenanceRequests);
-
+        upsertInArray(state.maintenanceRequests, payload);
         if (
           state.currentRequest &&
-          (state.currentRequest.ticket_id === updated.ticket_id ||
-            state.currentRequest.id === updated.id)
+          (state.currentRequest.id        === payload.id ||
+           state.currentRequest.ticket_id === payload.ticket_id)
         ) {
-          state.currentRequest = { ...state.currentRequest, ...updated };
+          state.currentRequest = { ...state.currentRequest, ...payload };
         }
-
+        Object.assign(state, deriveCounts(state.maintenanceRequests));
         state.lastUpdated = new Date().toISOString();
       })
       .addCase(updateMaintenanceStatus.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || "Failed to update maintenance status";
+        state.error   = payload || error.message || 'Failed to update maintenance status';
       })
 
-      // ✅ Escalate maintenance request
-      .addCase(escalateMaintenanceRequest.pending, (state) => {
+      // ── 5. By status ─────────────────────────────────────────────────────────
+      .addCase(getMaintenanceByStatus.pending, (state) => {
         state.loading = true;
-        state.error = null;
+        state.error   = null;
       })
-      .addCase(escalateMaintenanceRequest.fulfilled, (state, { payload }) => {
+      .addCase(getMaintenanceByStatus.fulfilled, (state, { payload }) => {
         state.loading = false;
-        const escalated = payload.request || payload.ticket || payload;
-
-        const updateInArray = (array) => {
-          const index = array.findIndex(
-            (r) => r.ticket_id === escalated.ticket_id || r.id === escalated.id
-          );
-          if (index !== -1) array[index] = { ...array[index], ...escalated };
-        };
-
-        updateInArray(state.maintenanceRequests);
-
-        if (
-          state.currentRequest &&
-          (state.currentRequest.ticket_id === escalated.ticket_id ||
-            state.currentRequest.id === escalated.id)
-        ) {
-          state.currentRequest = { ...state.currentRequest, ...escalated };
-        }
-
+        // Merge filtered results into the main list (upsert by id)
+        (Array.isArray(payload) ? payload : []).forEach((ticket) => {
+          upsertInArray(state.maintenanceRequests, ticket);
+        });
+        Object.assign(state, deriveCounts(state.maintenanceRequests));
         state.lastUpdated = new Date().toISOString();
       })
-      .addCase(escalateMaintenanceRequest.rejected, (state, { payload, error }) => {
+      .addCase(getMaintenanceByStatus.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || "Failed to escalate request";
+        state.error   = payload || error.message || 'Failed to fetch tickets by status';
+      })
+
+      // ── 6. Statistics ────────────────────────────────────────────────────────
+      .addCase(getMaintenanceStatistics.pending, (state) => {
+        state.statisticsLoading = true;
+        state.error             = null;
+      })
+      .addCase(getMaintenanceStatistics.fulfilled, (state, { payload }) => {
+        state.statisticsLoading = false;
+        state.statistics        = payload; // { new, inProgress, completed, total }
+        state.lastUpdated       = new Date().toISOString();
+      })
+      .addCase(getMaintenanceStatistics.rejected, (state, { payload, error }) => {
+        state.statisticsLoading = false;
+        state.error = payload || error.message || 'Failed to fetch statistics';
+      })
+
+      // ── 7. By tenant ─────────────────────────────────────────────────────────
+      .addCase(getMaintenanceByTenant.pending, (state) => {
+        state.loading = true;
+        state.error   = null;
+      })
+      .addCase(getMaintenanceByTenant.fulfilled, (state, { payload }) => {
+        state.loading = false;
+        // Merge tenant-specific results into the main list
+        (Array.isArray(payload) ? payload : []).forEach((ticket) => {
+          upsertInArray(state.maintenanceRequests, ticket);
+        });
+        Object.assign(state, deriveCounts(state.maintenanceRequests));
+        state.lastUpdated = new Date().toISOString();
+      })
+      .addCase(getMaintenanceByTenant.rejected, (state, { payload, error }) => {
+        state.loading = false;
+        state.error   = payload || error.message || 'Failed to fetch tenant tickets';
       });
   },
 });
 
-// ✅ Export actions
+// ─── Actions ──────────────────────────────────────────────────────────────────
 export const {
   clearError,
   clearCurrentRequest,
@@ -203,56 +236,84 @@ export const {
   calculateTotals,
 } = maintenanceSlice.actions;
 
-// ✅ Selectors
+// ─── Selectors ────────────────────────────────────────────────────────────────
 const selectMaintenanceState = (state) => state.maintenance || {};
 
 export const maintenanceSelectors = {
-  getMaintenanceData: createSelector([selectMaintenanceState], (maintenanceState) => ({
-    loading: maintenanceState.loading || false,
-    detailsLoading: maintenanceState.detailsLoading || false,
-    requests: maintenanceState.maintenanceRequests || [],
-    currentRequest: maintenanceState.currentRequest,
-    totalRequests: maintenanceState.totalRequests || 0,
-    openRequests: maintenanceState.openRequests || 0,
-    closedRequests: maintenanceState.closedRequests || 0,
-    lastUpdated: maintenanceState.lastUpdated,
-    error: maintenanceState.error,
-    inProgressRequests: maintenanceState.inProgressRequests || 0,
-  })),
+  /** Full maintenance state as a single object — use sparingly */
+  getMaintenanceData: createSelector(
+    [selectMaintenanceState],
+    (s) => ({
+      loading:            s.loading            || false,
+      detailsLoading:     s.detailsLoading     || false,
+      statisticsLoading:  s.statisticsLoading  || false,
+      requests:           s.maintenanceRequests || [],
+      currentRequest:     s.currentRequest,
+      totalRequests:      s.totalRequests      || 0,
+      openRequests:       s.openRequests       || 0,
+      closedRequests:     s.closedRequests     || 0,
+      inProgressRequests: s.inProgressRequests || 0,
+      statistics:         s.statistics,
+      lastUpdated:        s.lastUpdated,
+      error:              s.error,
+    })
+  ),
 
   getAllRequests: createSelector(
     [selectMaintenanceState],
-    (maintenanceState) => maintenanceState.maintenanceRequests || []
+    (s) => s.maintenanceRequests || []
   ),
 
   getCurrentRequest: createSelector(
     [selectMaintenanceState],
-    (maintenanceState) => maintenanceState.currentRequest
+    (s) => s.currentRequest
+  ),
+
+  getStatistics: createSelector(
+    [selectMaintenanceState],
+    (s) => s.statistics || { new: 0, inProgress: 0, completed: 0, total: 0 }
   ),
 
   isLoading: createSelector(
     [selectMaintenanceState],
-    (maintenanceState) => maintenanceState.loading || false
+    (s) => s.loading || false
   ),
 
   isDetailsLoading: createSelector(
     [selectMaintenanceState],
-    (maintenanceState) => maintenanceState.detailsLoading || false
+    (s) => s.detailsLoading || false
+  ),
+
+  isStatisticsLoading: createSelector(
+    [selectMaintenanceState],
+    (s) => s.statisticsLoading || false
   ),
 
   getError: createSelector(
     [selectMaintenanceState],
-    (maintenanceState) => maintenanceState.error
+    (s) => s.error
   ),
 
+  /** Open tickets = status 'pending' */
   getOpenRequests: createSelector(
     [selectMaintenanceState],
-    (maintenanceState) =>
-      (maintenanceState.maintenanceRequests || []).filter(
-        (r) => r.status !== "Closed" && r.status !== "Resolved"
+    (s) => (s.maintenanceRequests || []).filter((r) => r.status === 'pending')
+  ),
+
+  /** In-progress tickets */
+  getInProgressRequests: createSelector(
+    [selectMaintenanceState],
+    (s) => (s.maintenanceRequests || []).filter((r) => r.status === 'in_progress')
+  ),
+
+  /** Completed or cancelled */
+  getClosedRequests: createSelector(
+    [selectMaintenanceState],
+    (s) =>
+      (s.maintenanceRequests || []).filter(
+        (r) => r.status === 'completed' || r.status === 'cancelled'
       )
   ),
 };
 
-// ✅ Export reducer
 export default maintenanceSlice.reducer;

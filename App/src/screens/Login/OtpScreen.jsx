@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef , useEffect} from 'react';
 import {
     KeyboardAvoidingView,
     Platform,
@@ -21,18 +21,62 @@ import { useDispatch, useSelector } from 'react-redux';
 import CustomButton from '../../components/CustomButton';
 import { Colors } from '../../Theme';
 import { getFontFamily } from '../../utils';
-import { confirmSignUp, resendVerificationCode } from '../../Redux/Login/services';
-import { loginDataSelectors } from '../../Redux/Login/loginSlice';
+import { confirmSignUp, resendVerificationCode } from '../../Redux/Login/loginservices';
+import { loginDataSelectors, clearResendFreezeIfExpired } from '../../Redux/Login/loginSlice';
 import {AppIcon} from '../../components/AppIcon';
 import { icons } from '../../Assets';
 
 const OtpScreen = ({ navigation, route }) => {
-    const { email, phone } = route.params || {};
+    const { email, phone, role } = route.params || {};
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
     const inputRefs = useRef([]);
 
     const dispatch = useDispatch();
-    const { loading } = useSelector(loginDataSelectors.getOtpData);
+    const { loading ,tempRole , resendLoading} = useSelector(loginDataSelectors.getOtpData);
+    const [resendTimer, setResendTimer] = useState(0);
+
+    // ✅ NEW — resend freeze selector
+    const {
+        attempts: resendAttempts,
+        frozenUntil: resendFrozenUntil,
+        isFrozen: isResendFrozen,
+        remaining: resendRemaining,
+    } = useSelector(loginDataSelectors.getResendAttempts);
+
+    // ✅ NEW — freeze countdown string
+    const [freezeCountdown, setFreezeCountdown] = useState('');
+    
+    
+    // ── Resend cooldown timer (30s between each resend) ──
+    useEffect(() => {
+        if (resendTimer <= 0) return;
+        const interval = setInterval(() => {
+            setResendTimer(prev => prev - 1);
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [resendTimer]);
+
+    // ✅ NEW — 5-min freeze countdown timer
+    useEffect(() => {
+        if (!resendFrozenUntil) {
+            setFreezeCountdown('');
+            return;
+        }
+        const tick = () => {
+            const diff = resendFrozenUntil - Date.now();
+            if (diff <= 0) {
+                dispatch(clearResendFreezeIfExpired());
+                setFreezeCountdown('');
+                return;
+            }
+            const mins = Math.floor(diff / 60000);
+            const secs = Math.floor((diff % 60000) / 1000);
+            setFreezeCountdown(`${mins}:${secs.toString().padStart(2, '0')}`);
+        };
+        tick();
+        const interval = setInterval(tick, 1000);
+        return () => clearInterval(interval);
+    }, [resendFrozenUntil, dispatch]);
 
     const handleOtpChange = (value, index) => {
         // Only allow numbers
@@ -46,6 +90,18 @@ const OtpScreen = ({ navigation, route }) => {
         if (value && index < 5) {
             inputRefs.current[index + 1]?.focus();
         }
+        
+        if (value && newOtp.every(d => d !== '')) {
+        Keyboard.dismiss();
+        const otpCode = newOtp.join('');
+        dispatch(confirmSignUp({
+            email: email,
+            otpCode: otpCode,
+            role: tempRole || 'tenant',
+        })).unwrap().catch(error => {
+            console.error('OTP verification error:', error);
+        });
+    }
     };
 
     const handleKeyPress = (e, index) => {
@@ -68,7 +124,7 @@ const OtpScreen = ({ navigation, route }) => {
             await dispatch(confirmSignUp({
                 email: email,
                 otpCode: otpCode,
-             
+              role: tempRole || 'tenant',
             })).unwrap();
             // Success navigation is handled in the service
         } catch (error) {
@@ -76,17 +132,22 @@ const OtpScreen = ({ navigation, route }) => {
         }
     };
 
-    const handleResendCode = async () => {
-        try {
-            await dispatch(resendVerificationCode({ email: email })).unwrap();
-            setOtp(['', '', '', '', '', '']); // Clear OTP inputs
-            inputRefs.current[0]?.focus();
-        } catch (error) {
-            console.error('Resend code error:', error);
-        }
-    };
+ const handleResendCode = async () => {
+  if (resendTimer > 0 || isResendFrozen) return; // ✅ also block if frozen
+  try {
+    await dispatch(resendVerificationCode({ email: email })).unwrap();
+    setOtp(['', '', '', '', '', '']);
+    inputRefs.current[0]?.focus();
+    setResendTimer(30); // 30-second cooldown between resends
+  } catch (error) {
+    console.error('Resend code error:', error);
+  }
+};
 
     const isVerifyDisabled = otp.join('').length !== 6 || loading;
+
+    // ✅ NEW — combined disabled check: loading OR 30s cooldown OR 5-min freeze
+    const isResendDisabled = resendLoading || resendTimer > 0 || isResendFrozen;
 
     return (
         <ImageBackground
@@ -95,10 +156,18 @@ const OtpScreen = ({ navigation, route }) => {
             imageStyle={styles.imageStyle}
             resizeMode="cover"
         >
-            <LinearGradient
-                colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0.7)', 'rgba(255,255,255,0.95)', '#FFFFFF']}
-                locations={[0, 0.2, 0.35, 0.5, 0.7]}
-                style={styles.gradientOverlay}>
+                 <LinearGradient
+          colors={[
+            'rgba(0, 0, 0, 0)',
+            'rgba(0, 0, 0, 0)',
+            'rgba(0, 0, 0, 0.2)',
+            'rgba(0, 0, 0, 0.6)',
+            'rgba(0, 0, 0, 0.7)',
+        
+          ]}
+          locations={[0, 0.4, 0.55, 0.75, 0.9, ]}
+          style={styles.gradientOverlay}
+        >
                 <StatusBar backgroundColor={Colors.black} barStyle="dark-content" />
                 <FlashMessage position="top" />
 
@@ -143,11 +212,35 @@ const OtpScreen = ({ navigation, route }) => {
                             ))}
                         </View>
 
+                        {/* ✅ NEW — Freeze banner (shows after 3 resends) */}
+                        {isResendFrozen && (
+                            <View style={styles.freezeBanner}>
+                                <Icon name="lock-clock" size={18} color="#B71C1C" />
+                                <Text style={styles.freezeText}>
+                                    Resend locked. Try again in{' '}
+                                    <Text style={styles.freezeTimer}>{freezeCountdown}</Text>
+                                </Text>
+                            </View>
+                        )}
+
                         {/* Resend Code */}
                         <View style={styles.resendContainer}>
                             <Text style={styles.resendText}>Didn't receive the code? </Text>
-                            <TouchableOpacity onPress={handleResendCode} disabled={loading}>
-                                <Text style={styles.resendLink}>Resend</Text>
+                            <TouchableOpacity onPress={handleResendCode} disabled={isResendDisabled}>
+                                 <Text style={[
+                                    styles.resendLink,
+                                    isResendDisabled && { color: '#999' }
+                                 ]}>
+                                    {resendLoading
+                                        ? 'Sending...'
+                                        : isResendFrozen
+                                            ? `Locked (${freezeCountdown})`
+                                            : resendTimer > 0
+                                                ? `Resend in ${resendTimer}s`
+                                                : resendAttempts > 0
+                                                    ? `Resend (${resendRemaining} left)`
+                                                    : 'Resend'}
+                                 </Text>
                             </TouchableOpacity>
                         </View>
 
@@ -178,19 +271,30 @@ const OtpScreen = ({ navigation, route }) => {
 };
 
 const styles = StyleSheet.create({
-    backgroundImage: { flex: 1, width: '100%', height: '100%' },
+
+  backgroundImage: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
     imageStyle: {
+        // width: 687,
         width: '100%',
-        height: 931,
-        top: -400,
+        height: 1231,
+        top: -270,
         left: 0,
+        // left: -128,
         opacity: 0.3,
+        // position: 'absolute',
     },
-    gradientOverlay: { ...StyleSheet.absoluteFillObject },
-    scrollContent: { 
+  
+  gradientOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+    scrollContent: {
         flexGrow: 1,
         paddingHorizontal: wp(5),
-        paddingVertical: hp(5) 
+        paddingVertical: hp(5)
     },
     backButton: {
         position: 'absolute',
@@ -274,12 +378,37 @@ const styles = StyleSheet.create({
     loginText: {
         fontSize: 14,
         fontFamily: getFontFamily('regular'),
-        color: '#666',
+        color: 'Colors.White',
     },
     loginLink: {
         fontSize: 14,
         fontFamily: getFontFamily('bold'),
         color: Colors.black,
+    },
+
+    // ✅ NEW — Freeze banner styles
+    freezeBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFEBEE',
+        borderWidth: 1,
+        borderColor: '#EF9A9A',
+        borderRadius: 8,
+        paddingHorizontal: wp(3),
+        paddingVertical: hp(1.2),
+        marginBottom: hp(2),
+        gap: wp(2),
+    },
+    freezeText: {
+        flex: 1,
+        fontSize: hp(1.6),
+        fontFamily: getFontFamily('regular'),
+        color: '#B71C1C',
+    },
+    freezeTimer: {
+        fontFamily: getFontFamily('bold'),
+        fontWeight: '700',
+        color: '#B71C1C',
     },
 });
 

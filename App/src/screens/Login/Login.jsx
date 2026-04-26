@@ -69,20 +69,14 @@ const Login = ({ navigation }) => {
   };
 
   const handleLogin = () => {
-    navigation.navigate('TenantLogin');
+     navigation.navigate('SocialAuth', { persona: 'tenant' });
   };
 
-  const handleTenantLogin = () => {
-    navigation.navigate('TenantLogin', { userType: 'tenant' });
-  };
+  const handleTenantLogin = () => navigation.navigate('SocialAuth', { persona: 'tenant' });
+  
+const handleLandlordLogin = () => navigation.navigate('SocialAuth', { persona: 'landlord' });
 
-  const handleLandlordLogin = () => {
-    navigation.navigate('LandlordLogin', { userType: 'landlord' });
-  };
-
-  const handleContractorLogin = () => {
-    navigation.navigate('ContractorLogin', { userType: 'contractor' });
-  };
+const handleContractorLogin = () => navigation.navigate('SocialAuth', { persona: 'contractor' });
 
   const handleRegister = () => {
     navigation.navigate('Register');

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   TouchableOpacity,
@@ -8,7 +8,6 @@ import {
   Alert,
   FlatList,
   Modal,
-  ScrollView,
 } from "react-native";
 import { Box, Text, VStack, HStack } from "native-base";
 import { useSelector, useDispatch } from "react-redux";
@@ -23,59 +22,9 @@ import { Colors } from "../../Theme";
 import Toast from "react-native-simple-toast";
 import Container from "../../components/Container/Container";
 import { propertiesSelectors } from "../../Redux/Properties/propertiesSlice";
-import { getTenantById } from "../../Redux/Properties/services";
-
-/* ─────────────────────────────────────────────
-   DUMMY DOCS — shown until your documents API
-   is ready. Real PDF URLs so "View" actually opens.
-   TODO: replace fetchDocuments body with your API call.
-───────────────────────────────────────────── */
-const DUMMY_DOCUMENTS = [
-  {
-    document_id: "doc-001",
-    document_type: "lease",
-    filename: "Lease_Agreement_2025.pdf",
-    file_url: "https://www.w3.org/WAI/WCAG21/Techniques/pdf/sample.pdf",
-    download_url: "https://www.w3.org/WAI/WCAG21/Techniques/pdf/sample.pdf",
-    status: "signed",
-    size: 204800,
-    created_at: "2025-01-15T10:00:00Z",
-    signed_at: "2025-01-16T14:30:00Z",
-  },
-  {
-    document_id: "doc-002",
-    document_type: "notice",
-    filename: "Rent_Increase_Notice.pdf",
-    file_url: "https://www.africau.edu/images/default/sample.pdf",
-    download_url: "https://www.africau.edu/images/default/sample.pdf",
-    status: "pending",
-    size: 51200,
-    created_at: "2025-03-01T09:00:00Z",
-    signed_at: null,
-  },
-  {
-    document_id: "doc-003",
-    document_type: "inspection",
-    filename: "Move_In_Inspection_Report.pdf",
-    file_url: "https://www.orimi.com/pdf-test.pdf",
-    download_url: "https://www.orimi.com/pdf-test.pdf",
-    status: "unsigned",
-    size: 102400,
-    created_at: "2025-02-10T08:00:00Z",
-    signed_at: null,
-  },
-  {
-    document_id: "doc-004",
-    document_type: "addendum",
-    filename: "Pet_Policy_Addendum.pdf",
-    file_url: "https://pdfobject.com/pdf/sample.pdf",
-    download_url: "https://pdfobject.com/pdf/sample.pdf",
-    status: "pending",
-    size: 30720,
-    created_at: "2025-02-20T11:00:00Z",
-    signed_at: null,
-  },
-];
+import { getTenantById } from "../../Redux/Properties/servicesNode";
+import { getDocuments } from "../../Redux/Documents/documentsServicesNode";
+import { documentsSelectors } from "../../Redux/Documents/documentsSlice";
 
 /* ─────────────────────────────────────────────
    STATUS CONFIG
@@ -99,29 +48,49 @@ const STATUS_CONFIG = {
     text: "#C62828",
     border: "#EF9A9A",
   },
+  expired: {
+    label: "Expired",
+    bg: "#F3E5F5",
+    text: "#6A1B9A",
+    border: "#CE93D8",
+  },
+  cancelled: {
+    label: "Cancelled",
+    bg: "#ECEFF1",
+    text: "#546E7A",
+    border: "#B0BEC5",
+  },
 };
 
 const DOC_TYPE_LABELS = {
-  lease: "Lease Agreement",
-  notice: "Notice",
-  addendum: "Addendum",
-  inspection: "Inspection Report",
-  signed: "Signed Document",
+  lease_agreement:    "Lease Agreement",
+  lease_addendum:     "Lease Addendum",
+  notice:             "Notice",
+  inspection_report:  "Inspection Report",
+  property_image:     "Property Image",
+  maintenance_report: "Maintenance Report",
+  tenant_document:    "Tenant Document",
+  signed_document:    "Signed Document",
+  contract:           "Contract",
+  other:              "Other",
+  // legacy keys from DUMMY_DOCUMENTS
+  lease:     "Lease Agreement",
+  addendum:  "Addendum",
+  inspection:"Inspection Report",
+  signed:    "Signed Document",
 };
 
 /* ─────────────────────────────────────────────
    SEND MODAL
-   Shows tenants to send a doc to (single or bulk)
 ───────────────────────────────────────────── */
 const SendModal = ({ visible, document, tenants, onClose, onSend }) => {
   const [selected, setSelected] = useState([]);
   const [sending, setSending] = useState(false);
 
-  const toggleTenant = (id) => {
+  const toggleTenant = (id) =>
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
     );
-  };
 
   const selectAll = () => {
     if (selected.length === tenants.length) {
@@ -137,8 +106,7 @@ const SendModal = ({ visible, document, tenants, onClose, onSend }) => {
       return;
     }
     setSending(true);
-    // TODO: replace with real dispatch → sendDocument thunk
-    await new Promise((r) => setTimeout(r, 1000)); // simulate network
+    await new Promise((r) => setTimeout(r, 800));
     setSending(false);
     onSend(selected);
     setSelected([]);
@@ -158,18 +126,13 @@ const SendModal = ({ visible, document, tenants, onClose, onSend }) => {
     >
       <View style={styles.modalOverlay}>
         <View style={styles.modalSheet}>
-          {/* Handle bar */}
           <View style={styles.modalHandle} />
 
           <Text style={styles.modalTitle}>Send Document</Text>
 
           {document && (
             <View style={styles.modalDocPreview}>
-              <AppIcon
-                name={icons.Document}
-                height={hp(2.2)}
-                width={hp(2.2)}
-              />
+              <AppIcon name={icons.Document} height={hp(2.2)} width={hp(2.2)} />
               <Text style={styles.modalDocName} numberOfLines={1}>
                 {document.filename}
               </Text>
@@ -202,37 +165,35 @@ const SendModal = ({ visible, document, tenants, onClose, onSend }) => {
           <View style={styles.divider} />
 
           {/* Tenant list */}
-          {tenants.map((tenant) => {
-            const isSelected = selected.includes(tenant.tenant_id);
-            return (
-              <TouchableOpacity
-                key={tenant.tenant_id}
-                style={styles.tenantRow}
-                onPress={() => toggleTenant(tenant.tenant_id)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.tenantAvatar}>
-                  <Text style={styles.tenantAvatarText}>
-                    {tenant.name.charAt(0)}
-                  </Text>
-                </View>
-                <VStack flex={1}>
-                  <Text style={styles.tenantName}>{tenant.name}</Text>
-                  <Text style={styles.tenantUnit}>{tenant.unit}</Text>
-                </VStack>
-                <View
-                  style={[
-                    styles.checkbox,
-                    isSelected && styles.checkboxChecked,
-                  ]}
+          {tenants.length === 0 ? (
+            <Text style={styles.modalSubtitle}>No tenants assigned to this property.</Text>
+          ) : (
+            tenants.map((tenant) => {
+              const isSelected = selected.includes(tenant.tenant_id);
+              return (
+                <TouchableOpacity
+                  key={tenant.tenant_id}
+                  style={styles.tenantRow}
+                  onPress={() => toggleTenant(tenant.tenant_id)}
+                  activeOpacity={0.7}
                 >
-                  {isSelected && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+                  <View style={styles.tenantAvatar}>
+                    <Text style={styles.tenantAvatarText}>
+                      {(tenant.name || "?").charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <VStack flex={1}>
+                    <Text style={styles.tenantName}>{tenant.name}</Text>
+                    <Text style={styles.tenantUnit}>{tenant.unit}</Text>
+                  </VStack>
+                  <View style={[styles.checkbox, isSelected && styles.checkboxChecked]}>
+                    {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
 
-          {/* Action buttons */}
           <HStack space={3} style={styles.modalActions}>
             <TouchableOpacity
               style={styles.cancelBtn}
@@ -243,10 +204,7 @@ const SendModal = ({ visible, document, tenants, onClose, onSend }) => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[
-                styles.sendBtn,
-                !selected.length && styles.sendBtnDisabled,
-              ]}
+              style={[styles.sendBtn, !selected.length && styles.sendBtnDisabled]}
               onPress={handleSend}
               disabled={sending || !selected.length}
               activeOpacity={0.7}
@@ -271,7 +229,7 @@ const SendModal = ({ visible, document, tenants, onClose, onSend }) => {
 ───────────────────────────────────────────── */
 const DocumentCard = ({ item, onDownload, onSend, downloading }) => {
   const statusCfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.unsigned;
-  const typeLabel = DOC_TYPE_LABELS[item.document_type] || item.document_type;
+  const typeLabel = DOC_TYPE_LABELS[item.document_type] || item.document_type || "Document";
 
   const formatFileSize = (bytes) => {
     if (!bytes) return "N/A";
@@ -292,30 +250,22 @@ const DocumentCard = ({ item, onDownload, onSend, downloading }) => {
   return (
     <View style={styles.card}>
       <HStack alignItems="flex-start" space={3}>
-        {/* Document icon */}
+        {/* Icon */}
         <View style={styles.iconBox}>
           <AppIcon name={icons.Document} height={hp(2.4)} width={hp(2.4)} />
         </View>
 
         {/* Content */}
         <VStack flex={1}>
-          {/* Filename + status badge */}
+          {/* Filename + badge */}
           <HStack alignItems="center" justifyContent="space-between" mb={0.5}>
-            <Text
-              style={styles.docFilename}
-              numberOfLines={1}
-              flex={1}
-              mr={2}
-            >
-              {item.filename}
+            <Text style={styles.docFilename} numberOfLines={1} flex={1} mr={2}>
+              {item.filename || "Untitled Document"}
             </Text>
             <View
               style={[
                 styles.statusBadge,
-                {
-                  backgroundColor: statusCfg.bg,
-                  borderColor: statusCfg.border,
-                },
+                { backgroundColor: statusCfg.bg, borderColor: statusCfg.border },
               ]}
             >
               <Text style={[styles.statusText, { color: statusCfg.text }]}>
@@ -324,24 +274,18 @@ const DocumentCard = ({ item, onDownload, onSend, downloading }) => {
             </View>
           </HStack>
 
-          {/* Doc type */}
           <Text style={styles.docType}>{typeLabel}</Text>
 
-          {/* Meta row */}
           <Text style={styles.docMeta}>
             {formatFileSize(item.size)} · Uploaded {formatDate(item.created_at)}
           </Text>
 
-          {/* Signed at */}
           {item.signed_at && (
-            <Text style={styles.signedAt}>
-              ✓ Signed {formatDate(item.signed_at)}
-            </Text>
+            <Text style={styles.signedAt}>✓ Signed {formatDate(item.signed_at)}</Text>
           )}
 
-          {/* Action row */}
+          {/* Actions */}
           <HStack space={2} mt={2}>
-            {/* Download / View */}
             <TouchableOpacity
               style={styles.actionBtnOutline}
               onPress={() => onDownload(item)}
@@ -352,17 +296,12 @@ const DocumentCard = ({ item, onDownload, onSend, downloading }) => {
                 <ActivityIndicator size="small" color={Colors.red} />
               ) : (
                 <HStack alignItems="center" space={1}>
-                  <AppIcon
-                    name={icons.Download}
-                    height={hp(1.8)}
-                    width={hp(1.8)}
-                  />
+                  <AppIcon name={icons.Download} height={hp(1.8)} width={hp(1.8)} />
                   <Text style={styles.actionBtnOutlineText}>View</Text>
                 </HStack>
               )}
             </TouchableOpacity>
 
-            {/* Send to tenant */}
             <TouchableOpacity
               style={styles.actionBtnFilled}
               onPress={() => onSend(item)}
@@ -385,36 +324,55 @@ const PropertyDocuments = () => {
   const route = useRoute();
   const dispatch = useDispatch();
 
-  // ── Route params (passed from PropertyCard)
+  // ── Route params
   const { propertyId, propertyName = "Property" } = route.params || {};
 
-  // ── Auth from Redux (same pattern as LandlordProperties.jsx)
-  const authData = useSelector(
-    (state) => state?.loginData || state?.login || {}
-  );
-  const authToken =
-    authData?.accessToken || authData?.token || null;
-  const landlordId =
-    authData?.landlordId ||
-    authData?.userData?.landlordId ||
-    authData?.user?.landlordId ||
-    null;
+  // ── Auth — resolve token across all common Redux store shapes
+  const authToken = useSelector((state) => {
+    const src =
+      state?.auth ||
+      state?.login ||
+      state?.loginData ||
+      state?.user ||
+      {};
+    return (
+      src?.accessToken  ||
+      src?.token        ||
+      src?.access_token ||
+      src?.data?.accessToken ||
+      src?.data?.token  ||
+      null
+    );
+  });
 
-  // ── Pull the matching property from Redux so we get its real tenants
+  // ── Documents from Redux
+  const { documents, loading, error } = useSelector(documentsSelectors.getDocumentsData);
+
+  // ── Properties + tenants from Redux
   const { landlordProperties, currentTenant: loadedTenants } = useSelector(
     propertiesSelectors.getPropertiesData
   );
 
   const currentProperty = landlordProperties.find(
-    (p) =>
-      (p?.property_id || p?.propertyId || p?.id) === propertyId
+    (p) => (p?.property_id || p?.propertyId || p?.id) === propertyId
   );
 
-  // Build tenant list from the property's tenant_ids + already-fetched tenant objects
-  const propertyTenantIds = currentProperty?.tenant_ids ||
+  const propertyTenantIds =
+    currentProperty?.tenant_ids ||
     (currentProperty?.tenants?.map?.((t) => t?.tenant_id || t?.id) ?? []);
 
-  // Fetch any tenant details we don't have yet
+  // ── Local UI state
+  const [downloading, setDownloading] = useState(null);
+  const [sendModalVisible, setSendModalVisible] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState(null);
+
+  // ── Fetch documents
+  useEffect(() => {
+    if (!authToken) return;
+    dispatch(getDocuments({ token: authToken, propertyId }));
+  }, [propertyId, authToken]);
+
+  // ── Fetch tenants not yet loaded
   useEffect(() => {
     if (!authToken || !propertyTenantIds.length) return;
     const alreadyLoaded = (loadedTenants || []).map((t) => t.id);
@@ -425,7 +383,7 @@ const PropertyDocuments = () => {
     });
   }, [propertyId, authToken]);
 
-  // Shape tenant list for the SendModal
+  // ── Shape tenants for SendModal
   const propertyTenants = (loadedTenants || [])
     .filter((t) => propertyTenantIds.includes(t.id))
     .map((t) => ({
@@ -434,39 +392,25 @@ const PropertyDocuments = () => {
       unit: t.unit || t.email || "",
     }));
 
-  // ── Local state
-  const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [downloading, setDownloading] = useState(null);
-  const [sendModalVisible, setSendModalVisible] = useState(false);
-  const [selectedDoc, setSelectedDoc] = useState(null);
+  // ── Normalize API field names → DocumentCard shape
+  const normalizedDocuments = (documents || []).map((doc) => ({
+    document_id:   doc.id          || doc.document_id  || doc.documentId,
+    document_type: doc.type        || doc.document_type,
+    filename:      doc.name        || doc.filename,
+    file_url:      doc.fileUrl     || doc.file_url,
+    download_url:  doc.signedUrl   || doc.fileUrl      || doc.download_url || doc.file_url,
+    status:        doc.status      || "unsigned",
+    size:          doc.size        || null,
+    created_at:    doc.createdAt   || doc.created_at,
+    signed_at:     doc.signedAt    || doc.signed_at    || null,
+  }));
 
-  /* ── Fetch documents
-     Right now uses DUMMY_DOCUMENTS so you can test the full UI.
-     When your documents API is ready, replace the body below with:
-       const data = await dispatch(getPropertyDocuments({ propertyId, token: authToken })).unwrap();
-       setDocuments(data.documents || []);
-  ── */
-  const fetchDocuments = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      await new Promise((r) => setTimeout(r, 600)); // simulate network
-      setDocuments(DUMMY_DOCUMENTS); // ← swap for real API call when ready
-      
-// const data = await dispatch(getPropertyDocuments({ propertyId, token: authToken })).unwrap();
-// setDocuments(data.documents || []);
-    } catch (err) {
-      setError("Failed to load documents. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [propertyId]);
-
-  useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
+  // ── Stats
+  const stats = {
+    signed:   normalizedDocuments.filter((d) => d.status === "signed").length,
+    pending:  normalizedDocuments.filter((d) => d.status === "pending").length,
+    unsigned: normalizedDocuments.filter((d) => d.status === "unsigned").length,
+  };
 
   /* ── Handlers ── */
   const handleDownload = async (doc) => {
@@ -497,23 +441,13 @@ const PropertyDocuments = () => {
 
   const handleSendConfirm = (tenantIds) => {
     setSendModalVisible(false);
-    // TODO: dispatch(sendDocument({ documentId: selectedDoc.document_id, tenantIds }))
     Toast.show(
       `Document sent to ${tenantIds.length} tenant${tenantIds.length > 1 ? "s" : ""}`
-    );
-    // Optimistically update status to "pending" for unsigned docs
-    setDocuments((prev) =>
-      prev.map((d) =>
-        d.document_id === selectedDoc?.document_id && d.status === "unsigned"
-          ? { ...d, status: "pending" }
-          : d
-      )
     );
     setSelectedDoc(null);
   };
 
   const handleUpload = () => {
-    // TODO: open document picker → upload to S3 → dispatch addDocument
     Alert.alert(
       "Upload Document",
       "Document upload will be available once the API is connected.",
@@ -521,38 +455,42 @@ const PropertyDocuments = () => {
     );
   };
 
-  /* ── Stats bar ── */
-  const stats = {
-    signed: documents.filter((d) => d.status === "signed").length,
-    pending: documents.filter((d) => d.status === "pending").length,
-    unsigned: documents.filter((d) => d.status === "unsigned").length,
+  const handleRetry = () => {
+    if (authToken) dispatch(getDocuments({ token: authToken, propertyId }));
   };
+
+  /* ── Shared header ── */
+  const Header = () => (
+    <View style={styles.headerContainer}>
+      <HStack alignItems="center" justifyContent="space-between">
+        <HStack alignItems="center" space={2} flex={1}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.7}
+            hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+          >
+            <AppIcon name={icons.arrowBack} height={hp(2.5)} width={hp(2.5)} />
+          </TouchableOpacity>
+          <VStack flex={1}>
+            <Text style={styles.title} numberOfLines={1}>Documents</Text>
+            <Text style={styles.subtitle} numberOfLines={1}>{propertyName}</Text>
+          </VStack>
+        </HStack>
+        <TouchableOpacity style={styles.uploadBtn} onPress={handleUpload} activeOpacity={0.8}>
+          <Text style={styles.uploadBtnText}>+ Upload</Text>
+        </TouchableOpacity>
+      </HStack>
+    </View>
+  );
 
   /* ── Loading ── */
   if (loading) {
     return (
       <Container>
-        <View style={styles.headerContainer}>
-          <HStack alignItems="center" space={2}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              activeOpacity={0.7}
-              hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-            >
-              <AppIcon
-                name={icons.arrowBack}
-                height={hp(2.5)}
-                width={hp(2.5)}
-              />
-            </TouchableOpacity>
-            <Text style={styles.title}>{propertyName}</Text>
-          </HStack>
-        </View>
+        <Header />
         <View style={styles.center}>
           <ActivityIndicator size="large" color={Colors.red} />
-          <Text mt={3} color={Colors.textGray}>
-            Loading documents...
-          </Text>
+          <Text mt={3} color={Colors.textGray}>Loading documents...</Text>
         </View>
       </Container>
     );
@@ -562,28 +500,16 @@ const PropertyDocuments = () => {
   if (error) {
     return (
       <Container>
-        <View style={styles.headerContainer}>
-          <HStack alignItems="center" space={2}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              activeOpacity={0.7}
-              hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-            >
-              <AppIcon
-                name={icons.arrowBack}
-                height={hp(2.5)}
-                width={hp(2.5)}
-              />
-            </TouchableOpacity>
-            <Text style={styles.title}>{propertyName}</Text>
-          </HStack>
-        </View>
+        <Header />
         <View style={styles.center}>
-          <Text color="red.500" textAlign="center">
+          <AppIcon name={icons.Document} height={hp(6)} width={hp(6)} />
+          <Text
+            style={{ color: "#C62828", textAlign: "center", marginTop: hp(1.5), fontSize: hp(1.8) }}
+          >
             {error}
           </Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={fetchDocuments}>
-            <Text color={Colors.red}>Retry</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={handleRetry}>
+            <Text style={{ color: Colors.red, fontWeight: "600" }}>Retry</Text>
           </TouchableOpacity>
         </View>
       </Container>
@@ -593,44 +519,10 @@ const PropertyDocuments = () => {
   /* ── Main UI ── */
   return (
     <Container scroll={false}>
-      {/* ── HEADER ── */}
-      <View style={styles.headerContainer}>
-        <HStack alignItems="center" justifyContent="space-between">
-          <HStack alignItems="center" space={2} flex={1}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              activeOpacity={0.7}
-              hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-            >
-              <AppIcon
-                name={icons.arrowBack}
-                height={hp(2.5)}
-                width={hp(2.5)}
-              />
-            </TouchableOpacity>
-            <VStack flex={1}>
-              <Text style={styles.title} numberOfLines={1}>
-                Documents
-              </Text>
-              <Text style={styles.subtitle} numberOfLines={1}>
-                {propertyName}
-              </Text>
-            </VStack>
-          </HStack>
+      <Header />
 
-          {/* Upload button */}
-          <TouchableOpacity
-            style={styles.uploadBtn}
-            onPress={handleUpload}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.uploadBtnText}>+ Upload</Text>
-          </TouchableOpacity>
-        </HStack>
-      </View>
-
-      {/* ── STATS BAR ── */}
-      {documents.length > 0 && (
+      {/* Stats bar */}
+      {normalizedDocuments.length > 0 && (
         <View style={styles.statsBar}>
           <View style={styles.statItem}>
             <View style={[styles.statDot, { backgroundColor: "#2E7D32" }]} />
@@ -649,19 +541,14 @@ const PropertyDocuments = () => {
         </View>
       )}
 
-      {/* ── EMPTY STATE ── */}
-      {!documents.length ? (
+      {/* Empty state */}
+      {normalizedDocuments.length === 0 ? (
         <View style={styles.center}>
           <AppIcon name={icons.Document} height={hp(7)} width={hp(7)} />
           <Text mt={3} fontSize={hp(2)} color={Colors.textGray} textAlign="center">
             No documents yet
           </Text>
-          <Text
-            fontSize={hp(1.5)}
-            color={Colors.textGray}
-            textAlign="center"
-            mt={1}
-          >
+          <Text fontSize={hp(1.5)} color={Colors.textGray} textAlign="center" mt={1}>
             Tap "+ Upload" to add the first document for this property
           </Text>
           <TouchableOpacity
@@ -673,12 +560,12 @@ const PropertyDocuments = () => {
           </TouchableOpacity>
         </View>
       ) : (
-        /* ── DOCUMENT LIST ── */
         <FlatList
-          data={documents}
-          keyExtractor={(item) => item.document_id}
+          data={normalizedDocuments}
+          keyExtractor={(item) => String(item.document_id)}
           contentContainerStyle={styles.listContainer}
           ItemSeparatorComponent={() => <View style={{ height: hp(1.4) }} />}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
             <DocumentCard
               item={item}
@@ -689,11 +576,7 @@ const PropertyDocuments = () => {
           )}
           ListFooterComponent={() => (
             <Box mt={hp(1)} mb={hp(1)}>
-              <Text
-                textAlign="center"
-                fontSize={hp(1.4)}
-                color={Colors.textGray}
-              >
+              <Text textAlign="center" fontSize={hp(1.4)} color={Colors.textGray}>
                 Tap "Send to Tenant" to share a document for signing
               </Text>
             </Box>
@@ -701,7 +584,7 @@ const PropertyDocuments = () => {
         />
       )}
 
-      {/* ── SEND MODAL ── */}
+      {/* Send modal */}
       <SendModal
         visible={sendModalVisible}
         document={selectedDoc}
@@ -720,7 +603,6 @@ const PropertyDocuments = () => {
    STYLES
 ───────────────────────────────────────────── */
 const styles = StyleSheet.create({
-  /* Header */
   headerContainer: {
     paddingTop: hp(2),
     paddingBottom: hp(1.5),
@@ -747,8 +629,6 @@ const styles = StyleSheet.create({
     fontSize: hp(1.7),
     fontWeight: "600",
   },
-
-  /* Stats bar */
   statsBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -787,15 +667,11 @@ const styles = StyleSheet.create({
     height: hp(2),
     backgroundColor: "#E0E0E0",
   },
-
-  /* List */
   listContainer: {
     paddingHorizontal: wp(4),
     paddingTop: hp(0.5),
     paddingBottom: hp(3),
   },
-
-  /* Document card */
   card: {
     backgroundColor: "rgba(255, 255, 255, 0.7)",
     padding: hp(2),
@@ -834,8 +710,6 @@ const styles = StyleSheet.create({
     marginTop: hp(0.3),
     fontWeight: "500",
   },
-
-  /* Status badge */
   statusBadge: {
     paddingHorizontal: wp(2.5),
     paddingVertical: hp(0.4),
@@ -846,8 +720,6 @@ const styles = StyleSheet.create({
     fontSize: hp(1.3),
     fontWeight: "600",
   },
-
-  /* Action buttons on card */
   actionBtnOutline: {
     borderWidth: 1,
     borderColor: Colors.red,
@@ -876,8 +748,6 @@ const styles = StyleSheet.create({
     fontSize: hp(1.5),
     fontWeight: "600",
   },
-
-  /* Center / empty / error */
   center: {
     flex: 1,
     justifyContent: "center",
@@ -904,8 +774,6 @@ const styles = StyleSheet.create({
     fontSize: hp(1.8),
     fontWeight: "600",
   },
-
-  /* Send modal */
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",

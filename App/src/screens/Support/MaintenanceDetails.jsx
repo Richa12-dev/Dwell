@@ -24,8 +24,8 @@ import Toast from "react-native-simple-toast";
 import { useDispatch, useSelector } from "react-redux";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
-import { Recorder, Player } from '@react-native-community/audio-toolkit';
-import RNFS from 'react-native-fs';
+// import { Recorder, Player } from '@react-native-community/audio-toolkit';  // VOICE COMMENTED OUT
+// import RNFS from 'react-native-fs';  // VOICE COMMENTED OUT
 
 import { getFontFamily } from '../../utils';
 import { Colors } from "../../Theme";
@@ -33,13 +33,18 @@ import { Colors } from "../../Theme";
 
 const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
   const dispatch = useDispatch();
-  
+
   const loginData = useSelector(state => state.loginData || state.login);
-  const token = loginData?.idToken || loginData?.accessToken || loginData?.token || null;
+  const token = loginData?.accessToken || loginData?.token || null;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /* ── VOICE COMMENTED OUT ──
   const recorderRef = useRef(null);
   const playerRef = useRef(null);
+  */
+
+  const recorderRef = useRef(null);  // kept to avoid ref errors
+  const playerRef = useRef(null);    // kept to avoid ref errors
 
   // Form state
   const [title, setTitle] = useState("");
@@ -49,13 +54,13 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
   const [priorityModalVisible, setPriorityModalVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedPriority, setSelectedPriority] = useState("");
-  
+
   // Media states
   const [photos, setPhotos] = useState([]);
-  const [voiceNote, setVoiceNote] = useState(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
-  const [recordingPath, setRecordingPath] = useState(null);
+  // const [voiceNote, setVoiceNote] = useState(null);        // VOICE COMMENTED OUT
+  // const [isRecording, setIsRecording] = useState(false);    // VOICE COMMENTED OUT
+  // const [recordingDuration, setRecordingDuration] = useState(0); // VOICE COMMENTED OUT
+  // const [recordingPath, setRecordingPath] = useState(null); // VOICE COMMENTED OUT
 
   // Date/Time states - FIXED: Better initial state
   const [preferredStartDate, setPreferredStartDate] = useState(() => {
@@ -63,7 +68,7 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
     start.setHours(9, 0, 0, 0);
     return start;
   });
-  
+
   const [preferredEndDate, setPreferredEndDate] = useState(() => {
     const end = new Date();
     end.setHours(10, 0, 0, 0);
@@ -75,35 +80,53 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
 
+  // ✅ Must match MAINTENANCE_CATEGORIES in services.js exactly
   const categories = [
-    "Electrical",
     "Plumbing",
-    "Carpentry",
+    "Electrical",
     "HVAC",
-    "Painting",
-    "Cleaning",
+    "Appliance",
+    "Pest Control",
+    "Structural",
     "Landscaping",
-    "Appliances",
+    "Security",
+    "Cleaning",
     "Other",
   ];
 
   const priorities = ["Emergency", "High", "Moderate", "Low",];
-  
+
+  // ─────────────────────────────────────────────────────────────
+  // ✅ Auto-fill location from the `property` prop.
+  //
+  // Expected shape (from Support.jsx propertyInfo):
+  //   { street, city, state, zipcode, property_name, ... }
+  //
+  // We also defensively check a few alternative field names so the
+  // component works if called from another screen that passes a raw
+  // API property object (streetAddress / zipCode) instead.
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (property) {
-      const parts = [];
-      if (property.street) parts.push(property.street);
-      if (property.city) parts.push(property.city);
-      if (property.state) parts.push(property.state);
-      if (property.zipcode) parts.push(property.zipcode);
-      
-      const propertyLocation = parts.join(', ');
-      
-      if (propertyLocation) {
-        setLocation(propertyLocation);
-      } else {
-        setLocation(property.name || property.property_name || "");
-      }
+    if (!property) {
+      console.log('📍 [MaintenanceDetails] No property prop yet — skipping auto-fill');
+      return;
+    }
+
+    const street  = property.street      || property.streetAddress || '';
+    const city    = property.city        || '';
+    const state   = property.state       || '';
+    const zipcode = property.zipcode     || property.zipCode       || '';
+
+    const parts = [street, city, state, zipcode].filter(Boolean);
+    const propertyLocation = parts.join(', ');
+
+    if (propertyLocation) {
+      console.log('📍 [MaintenanceDetails] Auto-filling location:', propertyLocation);
+      setLocation(propertyLocation);
+    } else {
+      const fallback = property.property_name || property.name || '';
+      console.log('📍 [MaintenanceDetails] No address parts — falling back to:', fallback);
+      setLocation(fallback);
     }
   }, [property]);
 
@@ -112,9 +135,14 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
       mediaType: 'photo',
       includeBase64: false,
       saveToPhotos: true,
+       quality:           0.8,
+    cameraType:        'back',
+       presentationStyle: 'fullScreen',
     };
 
     launchCamera(options, (response) => {
+     console.log('[Camera] errorCode:', response.errorCode);
+    console.log('[Camera] errorMessage:', response.errorMessage);
       if (response.didCancel) return;
 
       if (response.errorCode) {
@@ -129,6 +157,7 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
           uri: asset.uri,
           type: asset.type,
           fileName: asset.fileName,
+          fileSize: asset.fileSize,
         };
         setPhotos(prev => [...prev, newPhoto]);
         Toast.show('Photo captured');
@@ -159,6 +188,7 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
           uri: asset.uri,
           type: asset.type,
           fileName: asset.fileName,
+          fileSize: asset.fileSize,
         }));
         setPhotos([...photos, ...newPhotos]);
         Toast.show(`${newPhotos.length} photo(s) added`);
@@ -186,7 +216,8 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
     setPhotos(updatedPhotos);
     Toast.show('Photo removed');
   };
-  
+
+  /* ── VOICE FUNCTIONS COMMENTED OUT ──
   const recordingIntervalRef = useRef(null);
 
   const startRecording = async () => {
@@ -218,7 +249,7 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
 
       await recorderRef.current.stop();
       setIsRecording(false);
-      
+
       clearInterval(recordingIntervalRef.current);
       recordingIntervalRef.current = null;
 
@@ -250,7 +281,7 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
     }
     clearInterval(recordingIntervalRef.current);
     recordingIntervalRef.current = null;
-  
+
     setVoiceNote(null);
     setRecordingDuration(0);
     recorderRef.current = null;
@@ -263,33 +294,34 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+  ── END VOICE FUNCTIONS COMMENTED OUT ── */
 
   // FIXED: Date change handlers
   const onStartDateChange = (event, selectedDate) => {
     if (Platform.OS === 'android') {
       setShowStartDatePicker(false);
     }
-    
+
     if (event.type === 'dismissed') {
       setShowStartDatePicker(false);
       return;
     }
-    
+
     if (selectedDate) {
       const newStartDate = new Date(selectedDate);
       newStartDate.setHours(preferredStartDate.getHours());
       newStartDate.setMinutes(preferredStartDate.getMinutes());
-      
+
       setPreferredStartDate(newStartDate);
-      
+
       const newEndDate = new Date(selectedDate);
       newEndDate.setHours(preferredEndDate.getHours());
       newEndDate.setMinutes(preferredEndDate.getMinutes());
-      
+
       if (newEndDate <= newStartDate) {
         newEndDate.setTime(newStartDate.getTime() + 2 * 60 * 60 * 1000);
       }
-      
+
       setPreferredEndDate(newEndDate);
     }
   };
@@ -298,12 +330,12 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
     if (Platform.OS === 'android') {
       setShowStartTimePicker(false);
     }
-    
+
     if (event.type === 'dismissed') {
       setShowStartTimePicker(false);
       return;
     }
-    
+
     if (selectedTime) {
       setPreferredStartDate(selectedTime);
       if (preferredEndDate <= selectedTime) {
@@ -316,12 +348,12 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
     if (Platform.OS === 'android') {
       setShowEndTimePicker(false);
     }
-    
+
     if (event.type === 'dismissed') {
       setShowEndTimePicker(false);
       return;
     }
-    
+
     if (selectedTime) {
       if (selectedTime <= preferredStartDate) {
         Toast.show("End time must be after start time");
@@ -388,33 +420,60 @@ const MaintenanceDetails = ({ onClose, property, landlordId, tenant_sub }) => {
     }
 
     setIsSubmitting(true);
-    
-    const payload = {
-      title: title.trim(),
-      description: description.trim(),
-      category: selectedCategory,
-      priority: selectedPriority,
-      location: location.trim(),
-      preferred_start: preferredStartDate.toISOString(),
-      preferred_end: preferredEndDate.toISOString(),
-      timezone: "Asia/Kolkata",
-      image_urls: photos.map(p => p.uri),
-      voice_url: voiceNote?.uri || null,
-    property_lat: property?.lat ?? property?.latitude ?? property?.property_lat ?? null,
-property_lng: property?.lng ?? property?.longitude ?? property?.property_lng ?? null,
+
+    // Map UI priority label → API urgency enum (low | medium | high | emergency)
+    const urgencyMap = {
+      Emergency: 'emergency',
+      High:      'high',
+      Moderate:  'medium',
+      Low:       'low',
     };
 
-    console.log("✅ Submitting Maintenance Request:", JSON.stringify(payload, null, 2));
+    // Pass raw local file objects directly to the thunk.
+    // The thunk calls uploadMediaFiles() which:
+    //   1. POSTs to /api/s3/batch-upload-urls  → gets S3 pre-signed PUT URLs
+    //   2. PUTs each file binary to S3
+    //   3. Returns [{ url: <CDN fileUrl>, type, name, size }]
+    // and then includes those real S3 URLs in the ticket payload.
+    const payload = {
+      // IDs
+      tenantId:   property?.tenant_id   || tenant_sub,
+      propertyId: property?.property_id || null,
+      unitId:     property?.unit_id     || null,
+
+      // Ticket fields
+      title:         title.trim(),
+      description:   description.trim(),
+      // ✅ selectedCategory already matches API enum (no mapping needed)
+      category:      selectedCategory,
+      urgency:       urgencyMap[selectedPriority] || 'medium',
+      location:      location.trim(),
+      status:        'pending',
+      scheduledDate: preferredStartDate.toISOString(),
+
+      // Raw local files — the thunk uploads them to S3 before creating the ticket
+      photos,
+      // voiceNote,  // VOICE COMMENTED OUT
+
+      // Auth
+      token,
+    };
+
+    console.log("✅ Submitting Maintenance Request:", JSON.stringify({
+      ...payload,
+      photos:    photos.map(p => ({ fileName: p.fileName, type: p.type })),
+      // voiceNote: voiceNote ? { fileName: voiceNote.fileName } : null,  // VOICE COMMENTED OUT
+    }, null, 2));
 
     try {
       const result = await dispatch(
-        createMaintenanceRequest({ ...payload, token })
+        createMaintenanceRequest(payload)
       ).unwrap();
 
       console.log("✅ Maintenance request created successfully:", result);
-      
+
       Toast.show("Request submitted successfully!");
-      
+
       setTitle("");
       setDescription("");
       setSelectedCategory("");
@@ -430,8 +489,8 @@ property_lng: property?.lng ?? property?.longitude ?? property?.property_lng ?? 
         return end;
       });
       setPhotos([]);
-      setVoiceNote(null);
-      
+      // setVoiceNote(null);  // VOICE COMMENTED OUT
+
       onClose();
     } catch (error) {
       console.error("Error submitting maintenance:", error);
@@ -617,6 +676,7 @@ property_lng: property?.lng ?? property?.longitude ?? property?.property_lng ?? 
             <Text style={styles.attachTextActive}>Photos</Text>
           </TouchableOpacity>
 
+          {/* ── VOICE BUTTON COMMENTED OUT ──
           <TouchableOpacity
             style={[
               styles.attachButton,
@@ -636,8 +696,9 @@ property_lng: property?.lng ?? property?.longitude ?? property?.property_lng ?? 
                voiceNote ? `Voice Saved` : 'Voice Note'}
             </Text>
           </TouchableOpacity>
+                {/* ── END VOICE BUTTON ── */}
         </View>
-        
+
         <View style={styles.attachmentPreviewRow}>
           {/* Photo Preview */}
           {photos.length > 0 && (
@@ -655,8 +716,8 @@ property_lng: property?.lng ?? property?.longitude ?? property?.property_lng ?? 
               ))}
             </ScrollView>
           )}
-          
-          {/* Voice Note Preview */}
+
+          {/* ── VOICE PREVIEW COMMENTED OUT ──
           {voiceNote && (
             <View style={styles.voicePreview}>
               <TouchableOpacity onPress={playVoice} style={styles.voicePlayBtn}>
@@ -675,6 +736,7 @@ property_lng: property?.lng ?? property?.longitude ?? property?.property_lng ?? 
               </TouchableOpacity>
             </View>
           )}
+          ── END VOICE PREVIEW ── */}
         </View>
 
         {/* Buttons */}
@@ -1124,7 +1186,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
     backgroundColor: "rgba(0, 0, 0, 0.4)",
-    
+
   },
   iosPickerContainer: {
   width: "100%",

@@ -7,9 +7,11 @@ import {
   cancelNotification,
   getUnreadCount,
   markAllAsRead,
+  updateNotification,
+  deleteNotification,
 } from './services';
 
-// Initial state
+// ─── Initial state ────────────────────────────────────────────────────────────
 const initialState = {
   notifications: [],
   unreadCount: 0,
@@ -20,7 +22,7 @@ const initialState = {
   lastFetch: null,
 };
 
-// Slice
+// ─── Slice ────────────────────────────────────────────────────────────────────
 const notificationSlice = createSlice({
   name: 'notifications',
   initialState,
@@ -43,7 +45,7 @@ const notificationSlice = createSlice({
     },
     updateNotificationLocally: (state, action) => {
       const index = state.notifications.findIndex(
-        n => n.notification_id === action.payload.notification_id
+        (n) => n.notification_id === action.payload.notification_id
       );
       if (index !== -1) {
         state.notifications[index] = {
@@ -54,20 +56,21 @@ const notificationSlice = createSlice({
     },
     removeNotificationLocally: (state, action) => {
       const index = state.notifications.findIndex(
-        n => n.notification_id === action.payload
+        (n) => n.notification_id === action.payload
       );
       if (index !== -1) {
-        const notification = state.notifications[index];
-        if (!notification.read_at) {
+        if (!state.notifications[index].read_at) {
           state.unreadCount = Math.max(0, state.unreadCount - 1);
         }
         state.notifications.splice(index, 1);
       }
     },
   },
+
   extraReducers: (builder) => {
     builder
-      // Fetch notifications (initial load)
+
+      // ── getNotifications ──────────────────────────────────────────────────
       .addCase(getNotifications.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -75,7 +78,7 @@ const notificationSlice = createSlice({
       .addCase(getNotifications.fulfilled, (state, action) => {
         state.loading = false;
         state.notifications = action.payload;
-        state.unreadCount = action.payload.filter(n => n.read_at === null).length;
+        state.unreadCount = action.payload.filter((n) => n.read_at === null).length;
         state.lastFetch = new Date().toISOString();
       })
       .addCase(getNotifications.rejected, (state, action) => {
@@ -83,16 +86,20 @@ const notificationSlice = createSlice({
         state.error = action.payload;
       })
 
-      // Create notification
+      // ── createNotification ────────────────────────────────────────────────
       .addCase(createNotification.pending, (state) => {
         state.loading = true;
         state.error = null;
       })
       .addCase(createNotification.fulfilled, (state, action) => {
         state.loading = false;
-        // Optionally add the new notification to the list
-        if (action.payload.notification) {
-          state.notifications.unshift(action.payload.notification);
+        // Add the newly created notification to the top of the list
+        const newNotification = action.payload?.notification || action.payload;
+        if (newNotification?.notification_id) {
+          state.notifications.unshift(newNotification);
+          if (!newNotification.read_at) {
+            state.unreadCount += 1;
+          }
         }
       })
       .addCase(createNotification.rejected, (state, action) => {
@@ -100,15 +107,12 @@ const notificationSlice = createSlice({
         state.error = action.payload;
       })
 
-      // Mark as read
-      .addCase(markNotificationAsRead.pending, (state) => {
-        // Optional: show loading indicator for this specific action
-      })
+      // ── markNotificationAsRead ────────────────────────────────────────────
       .addCase(markNotificationAsRead.fulfilled, (state, action) => {
         const index = state.notifications.findIndex(
-          n => n.notification_id === action.payload.notificationId
+          (n) => n.notification_id === action.payload.notificationId
         );
-        if (index !== -1) {
+        if (index !== -1 && !state.notifications[index].read_at) {
           state.notifications[index].read_at = new Date().toISOString();
           state.unreadCount = Math.max(0, state.unreadCount - 1);
         }
@@ -117,14 +121,14 @@ const notificationSlice = createSlice({
         console.error('Failed to mark as read:', action.payload);
       })
 
-      // Cancel notification
+      // ── cancelNotification ────────────────────────────────────────────────
       .addCase(cancelNotification.pending, (state) => {
         state.loading = true;
       })
       .addCase(cancelNotification.fulfilled, (state, action) => {
         state.loading = false;
         const index = state.notifications.findIndex(
-          n => n.notification_id === action.payload.notificationId
+          (n) => n.notification_id === action.payload.notificationId
         );
         if (index !== -1) {
           state.notifications[index].status = 'CANCELLED';
@@ -135,18 +139,18 @@ const notificationSlice = createSlice({
         state.error = action.payload;
       })
 
-      // Fetch unread count
+      // ── getUnreadCount ────────────────────────────────────────────────────
       .addCase(getUnreadCount.fulfilled, (state, action) => {
         state.unreadCount = action.payload;
       })
 
-      // Mark all as read
+      // ── markAllAsRead ─────────────────────────────────────────────────────
       .addCase(markAllAsRead.pending, (state) => {
         state.loading = true;
       })
       .addCase(markAllAsRead.fulfilled, (state) => {
         state.loading = false;
-        state.notifications = state.notifications.map(n => ({
+        state.notifications = state.notifications.map((n) => ({
           ...n,
           read_at: n.read_at || new Date().toISOString(),
         }));
@@ -155,11 +159,35 @@ const notificationSlice = createSlice({
       .addCase(markAllAsRead.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
+      })
+
+      // ── updateNotification ────────────────────────────────────────────────
+      .addCase(updateNotification.fulfilled, (state, action) => {
+        const updated = action.payload;
+        if (!updated?.notification_id) return;
+        const index = state.notifications.findIndex(
+          (n) => n.notification_id === updated.notification_id
+        );
+        if (index !== -1) {
+          state.notifications[index] = { ...state.notifications[index], ...updated };
+        }
+      })
+
+      // ── deleteNotification ────────────────────────────────────────────────
+      .addCase(deleteNotification.fulfilled, (state, action) => {
+        const { id } = action.payload;
+        const index = state.notifications.findIndex((n) => n.notification_id === id);
+        if (index !== -1) {
+          if (!state.notifications[index].read_at) {
+            state.unreadCount = Math.max(0, state.unreadCount - 1);
+          }
+          state.notifications.splice(index, 1);
+        }
       });
   },
 });
 
-// Actions
+// ─── Actions ──────────────────────────────────────────────────────────────────
 export const {
   setFilter,
   clearError,
@@ -169,13 +197,13 @@ export const {
   removeNotificationLocally,
 } = notificationSlice.actions;
 
-// Selectors
+// ─── Selectors ────────────────────────────────────────────────────────────────
 export const notificationSelectors = {
   selectAllNotifications: (state) => state.notifications.notifications,
   selectUnreadNotifications: (state) =>
-    state.notifications.notifications.filter(n => n.read_at === null),
+    state.notifications.notifications.filter((n) => n.read_at === null),
   selectReadNotifications: (state) =>
-    state.notifications.notifications.filter(n => n.read_at !== null),
+    state.notifications.notifications.filter((n) => n.read_at !== null),
   selectUnreadCount: (state) => state.notifications.unreadCount,
   selectLoading: (state) => state.notifications.loading,
   selectRefreshing: (state) => state.notifications.refreshing,
@@ -183,10 +211,10 @@ export const notificationSelectors = {
   selectFilter: (state) => state.notifications.filter,
   selectLastFetch: (state) => state.notifications.lastFetch,
   selectNotificationById: (state, id) =>
-    state.notifications.notifications.find(n => n.notification_id === id),
+    state.notifications.notifications.find((n) => n.notification_id === id),
 };
 
-// Export the thunks so they can be used in components
+// ─── Re-export thunks for component use ──────────────────────────────────────
 export {
   getNotifications,
   createNotification,
@@ -194,6 +222,8 @@ export {
   cancelNotification,
   getUnreadCount,
   markAllAsRead,
+  updateNotification,
+  deleteNotification,
 };
 
 export default notificationSlice.reducer;

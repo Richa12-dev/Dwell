@@ -7,7 +7,7 @@ import {
 } from 'native-base';
 import { Colors } from '../../Theme';
 import CollectionNavBar from '../../components/CollectionNavBar/CollectionNavBar';
-import { getTenantProperties } from '../../Redux/Properties/services';
+import { getTenantProperties } from '../../Redux/Properties/servicesNode';
 import { propertiesSelectors } from '../../Redux/Properties/propertiesSlice';
 import { Image } from 'native-base';
 import Swiper from 'react-native-swiper';

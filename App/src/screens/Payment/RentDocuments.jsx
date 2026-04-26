@@ -22,8 +22,10 @@ import { Colors } from "../../Theme";
 import Toast from "react-native-simple-toast";
 import Container from "../../components/Container/Container";
 import { useNavigation } from "@react-navigation/native";
-import { getRentDocuments } from "../../Redux/Rent/services";
-import { rentSelectors } from "../../Redux/Rent/rentSlice";
+// ✅ FIXED: was importing non-existent getRentDocuments from Rent/services
+//           and rentSelectors from rentSlice — RentDocuments uses the Documents slice
+import { getDocuments } from "../../Redux/Documents/documentsServicesNode";
+import { documentsSelectors } from "../../Redux/Documents/documentsSlice";
 // Install with: npm install react-native-signature-canvas
 import SignatureCanvas from "react-native-signature-canvas";
 
@@ -652,17 +654,19 @@ const RentDocuments = () => {
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [viewingDoc, setViewingDoc] = useState(null);
 
+  // ✅ FIXED: rentSelectors.getRentData doesn't exist → was passing undefined to useSelector → CRASH
+  //           Now correctly reads from the documents slice using documentsSelectors
   const { documents = [], loading, error } = useSelector(
-    rentSelectors.getRentData
+    documentsSelectors.getDocumentsData
   );
 
-  /* ── Fetch docs
-     Pass tenantId + token so your backend can filter by tenant.
-     TODO: update getRentDocuments thunk to accept and forward these.
+  /* ── Fetch docs on mount
+     getDocuments uses authFetch internally — no need to pass token manually.
+     Pass no args for all docs, or { propertyId } to filter by property.
   ── */
   useEffect(() => {
-    dispatch(getRentDocuments({ tenantId, token }));
-  }, [dispatch, tenantId, token]);
+    dispatch(getDocuments());
+  }, [dispatch]);
 
   /* ── Merge backend docs with local signed overrides ── */
   const mergedDocuments = documents.map((doc) => {
@@ -768,7 +772,7 @@ const RentDocuments = () => {
         <View style={styles.center}>
           <Text color="red.500" textAlign="center">{error}</Text>
           <TouchableOpacity style={styles.retryBtn}
-            onPress={() => dispatch(getRentDocuments({ tenantId, token }))}>
+            onPress={() => dispatch(getDocuments())}>
             <Text color={Colors.red}>Retry</Text>
           </TouchableOpacity>
         </View>

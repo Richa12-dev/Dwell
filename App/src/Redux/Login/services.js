@@ -1,3 +1,7 @@
+
+
+
+
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import Toast from 'react-native-simple-toast';
 import { Config } from '../../config';
@@ -14,6 +18,16 @@ const base_url = Config.Base_url;
 export const login = createAsyncThunk(
   'loginSlice/login',
   async (post, { rejectWithValue }) => {
+      // ✅ Block login if frozen (3 wrong attempts → 5 min freeze)
+          const { loginFrozenUntil } = getState().loginData;
+          if (loginFrozenUntil && Date.now() < loginFrozenUntil) {
+            const secs = Math.ceil((loginFrozenUntil - Date.now()) / 1000);
+            const m = Math.floor(secs / 60);
+            const s = secs % 60;
+            const msg = `Too many failed attempts. Try again in ${m}m ${s}s`;
+            Toast.show(msg);
+            return rejectWithValue(msg);
+          }
     const url = `${base_url}/login`;
 
     try {

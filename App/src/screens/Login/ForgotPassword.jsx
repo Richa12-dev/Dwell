@@ -23,7 +23,7 @@ import { AppIcon } from '../../components/AppIcon';
 import CustomButton from '../../components/CustomButton';
 import { Colors } from '../../Theme';
 import { getFontFamily } from '../../utils';
-import { forgotPassword } from '../../Redux/Login/services';
+import { forgotPassword } from '../../Redux/Login/loginservices';
 import { loginDataSelectors } from '../../Redux/Login/loginSlice';
 import { useDispatch, useSelector } from 'react-redux';
 

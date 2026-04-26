@@ -2884,6 +2884,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@invertase/react-native-apple-authentication@npm:^2.5.1":
+  version: 2.5.1
+  resolution: "@invertase/react-native-apple-authentication@npm:2.5.1"
+  checksum: 10c0/04cc3e6fde99caea6cdb16bb50786afce141e5014939e9d51bfe29a21c0241d73eac529954ac4826851ce603f4d3e9f1b68cc54225e2df532ecd8021b7be4804
+  languageName: node
+  linkType: hard
+
 "@isaacs/balanced-match@npm:^4.0.1":
   version: 4.0.1
   resolution: "@isaacs/balanced-match@npm:4.0.1"
@@ -4445,6 +4452,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@react-native-community/push-notification-ios@npm:^1.12.0":
+  version: 1.12.0
+  resolution: "@react-native-community/push-notification-ios@npm:1.12.0"
+  dependencies:
+    invariant: "npm:^2.2.4"
+  peerDependencies:
+    react: ">=16.6.3"
+    react-native: ">=0.58.4"
+  checksum: 10c0/7f6d375df05beeffe7fe2ba38bf30f9c3222760f691e5e4fd39bd6de504d0cdc844ea88fb522ec59248ed4a352b60d14522af9352f5399d9d1bd1f49cafd5605
+  languageName: node
+  linkType: hard
+
 "@react-native-community/slider@npm:^4.5.2":
   version: 4.5.7
   resolution: "@react-native-community/slider@npm:4.5.7"
@@ -4478,6 +4497,20 @@ __metadata:
     expo:
       optional: true
   checksum: 10c0/bf14ea6771d716caa9ca136e9fce08b477cf77a11978fad1666a2e9f6f33939b4f62f895b48e98482cc4f9e12ba69b92df001f47fa96fce3c595fa92b5bc71a9
+  languageName: node
+  linkType: hard
+
+"@react-native-google-signin/google-signin@npm:^16.1.2":
+  version: 16.1.2
+  resolution: "@react-native-google-signin/google-signin@npm:16.1.2"
+  peerDependencies:
+    expo: ">=52.0.40"
+    react: "*"
+    react-native: "*"
+  peerDependenciesMeta:
+    expo:
+      optional: true
+  checksum: 10c0/91f8f8c4ed5311e7cd7c2977696624d857abb18b7bedfec0a126d8cca38cd56d48d8e0976ba01cf75db385bdd0a054e51148b5a3c64476305ccfdd79370f57af
   languageName: node
   linkType: hard
 
@@ -6072,6 +6105,13 @@ __metadata:
   dependencies:
     "@sinonjs/commons": "npm:^3.0.0"
   checksum: 10c0/2e2fb6cc57f227912814085b7b01fede050cd4746ea8d49a1e44d5a0e56a804663b0340ae2f11af7559ea9bf4d087a11f2f646197a660ea3cb04e19efc04aa63
+  languageName: node
+  linkType: hard
+
+"@socket.io/component-emitter@npm:~3.1.0":
+  version: 3.1.2
+  resolution: "@socket.io/component-emitter@npm:3.1.2"
+  checksum: 10c0/c4242bad66f67e6f7b712733d25b43cbb9e19a595c8701c3ad99cbeb5901555f78b095e24852f862fffb43e96f1d8552e62def885ca82ae1bb05da3668fd87d7
   languageName: node
   linkType: hard
 
@@ -7821,7 +7861,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"debug@npm:4, debug@npm:^4.1.0, debug@npm:^4.1.1, debug@npm:^4.3.1, debug@npm:^4.3.2, debug@npm:^4.3.4, debug@npm:^4.4.0, debug@npm:^4.4.1, debug@npm:^4.4.3":
+"debug@npm:4, debug@npm:^4.1.0, debug@npm:^4.1.1, debug@npm:^4.3.1, debug@npm:^4.3.2, debug@npm:^4.3.4, debug@npm:^4.4.0, debug@npm:^4.4.1, debug@npm:^4.4.3, debug@npm:~4.4.1":
   version: 4.4.3
   resolution: "debug@npm:4.4.3"
   dependencies:
@@ -8050,6 +8090,7 @@ __metadata:
     "@babel/runtime": "npm:^7.28.6"
     "@bam.tech/react-native-image-resizer": "npm:^3.0.11"
     "@gluestack-ui/themed": "npm:^1.1.73"
+    "@invertase/react-native-apple-authentication": "npm:^2.5.1"
     "@react-native-async-storage/async-storage": "npm:^1.23.1"
     "@react-native-community/audio-toolkit": "npm:^2.0.3"
     "@react-native-community/blur": "npm:^4.4.0"
@@ -8059,9 +8100,11 @@ __metadata:
     "@react-native-community/cli-platform-ios": "npm:^20.1.0"
     "@react-native-community/datetimepicker": "npm:^8.6.0"
     "@react-native-community/netinfo": "npm:^11.4.1"
+    "@react-native-community/push-notification-ios": "npm:^1.12.0"
     "@react-native-community/slider": "npm:^4.5.2"
     "@react-native-firebase/app": "npm:^23.3.1"
     "@react-native-firebase/messaging": "npm:^23.3.1"
+    "@react-native-google-signin/google-signin": "npm:^16.1.2"
     "@react-native-picker/picker": "npm:^2.7.5"
     "@react-native-voice/voice": "npm:^3.2.4"
     "@react-native/babel-preset": "npm:0.83.1"
@@ -8103,8 +8146,10 @@ __metadata:
     react-native-android-location-services-dialog-box: "npm:^2.8.2"
     react-native-awesome-slider: "npm:^2.5.3"
     react-native-base64: "npm:^0.2.1"
+    react-native-branch: "npm:^6.9.0"
     react-native-calendar-picker: "npm:^7.1.2"
     react-native-chart-kit: "npm:^6.12.0"
+    react-native-device-info: "npm:^15.0.2"
     react-native-dialog: "npm:^9.3.0"
     react-native-document-picker: "npm:^9.2.0"
     react-native-element-dropdown: "npm:^2.12.4"
@@ -8146,6 +8191,7 @@ __metadata:
     react-test-renderer: "npm:19.2.0"
     redux-persist: "npm:^6.0.0"
     rn-modal-picker: "npm:^0.4.9"
+    socket.io-client: "npm:^4.8.3"
     toggle-switch-react-native: "npm:^3.3.0"
     typescript: "npm:^5.8.3"
     victory-native: "npm:^41.20.2"
@@ -8201,6 +8247,26 @@ __metadata:
   dependencies:
     iconv-lite: "npm:^0.6.2"
   checksum: 10c0/36d938712ff00fe1f4bac88b43bcffb5930c1efa57bbcdca9d67e1d9d6c57cfb1200fb01efe0f3109b2ce99b231f90779532814a81370a1bd3274a0f58585039
+  languageName: node
+  linkType: hard
+
+"engine.io-client@npm:~6.6.1":
+  version: 6.6.4
+  resolution: "engine.io-client@npm:6.6.4"
+  dependencies:
+    "@socket.io/component-emitter": "npm:~3.1.0"
+    debug: "npm:~4.4.1"
+    engine.io-parser: "npm:~5.2.1"
+    ws: "npm:~8.18.3"
+    xmlhttprequest-ssl: "npm:~2.1.1"
+  checksum: 10c0/d90bc32d614f67db9c198d1c26a787529f3038a7429c75e677f5495938cc45f9e89d435e8860bcfcc01db410e21d2f245b914f2fcbdb03ffd50d30f2aeec5143
+  languageName: node
+  linkType: hard
+
+"engine.io-parser@npm:~5.2.1":
+  version: 5.2.3
+  resolution: "engine.io-parser@npm:5.2.3"
+  checksum: 10c0/ed4900d8dbef470ab3839ccf3bfa79ee518ea8277c7f1f2759e8c22a48f64e687ea5e474291394d0c94f84054749fd93f3ef0acb51fa2f5f234cc9d9d8e7c536
   languageName: node
   linkType: hard
 
@@ -12472,6 +12538,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"react-native-branch@npm:^6.9.0":
+  version: 6.9.0
+  resolution: "react-native-branch@npm:6.9.0"
+  peerDependencies:
+    react-native: ">= 0.60"
+  checksum: 10c0/39eb32e110152a0ebd7e7caf380d914a8af73cf15bf92ac2315006d5a731d42e39e992cf4353ee4f4eb4e224cc6441b20f6e05a4d5d13f67962728142fa14c5d
+  languageName: node
+  linkType: hard
+
 "react-native-calendar-picker@npm:^7.1.2":
   version: 7.1.4
   resolution: "react-native-calendar-picker@npm:7.1.4"
@@ -12499,6 +12574,15 @@ __metadata:
     react-native: ">= 0.50.0"
     react-native-svg: "> 6.4.1"
   checksum: 10c0/37962ea0688914c4e9cdb87dfff5b89251fc40f6e09ec8f03635051882d13c2ede23886aec8f47c8e55a46e7cfba905871380d3b41af29473ae88eed78595494
+  languageName: node
+  linkType: hard
+
+"react-native-device-info@npm:^15.0.2":
+  version: 15.0.2
+  resolution: "react-native-device-info@npm:15.0.2"
+  peerDependencies:
+    react-native: "*"
+  checksum: 10c0/c4a1d9ae049f42f0aa3c5aba539a9826d2400cb15a6d17815824204e4e842fbc15c80afec7387acd07e02f80a1fa49aaef1d4d6e96bc9ec53c42ba63046e8ce1
   languageName: node
   linkType: hard
 
@@ -13734,6 +13818,28 @@ __metadata:
   languageName: node
   linkType: hard
 
+"socket.io-client@npm:^4.8.3":
+  version: 4.8.3
+  resolution: "socket.io-client@npm:4.8.3"
+  dependencies:
+    "@socket.io/component-emitter": "npm:~3.1.0"
+    debug: "npm:~4.4.1"
+    engine.io-client: "npm:~6.6.1"
+    socket.io-parser: "npm:~4.2.4"
+  checksum: 10c0/76c0d86de0b636d0bf5011cf3425212c900f43dac632db6eb493816920cd035af7ddd92fea9a106b45eb347405953c0414eb3a5d465b180215e46fc8b61420b3
+  languageName: node
+  linkType: hard
+
+"socket.io-parser@npm:~4.2.4":
+  version: 4.2.6
+  resolution: "socket.io-parser@npm:4.2.6"
+  dependencies:
+    "@socket.io/component-emitter": "npm:~3.1.0"
+    debug: "npm:~4.4.1"
+  checksum: 10c0/ba0a0b541b0a8e9d02b45c04c4c93a02331be5ea3478073c65bb9ff87032f12469c9adb309728eb90c0a352618d645ab88999c167a11c783cac861d7fd35c9d1
+  languageName: node
+  linkType: hard
+
 "socks-proxy-agent@npm:^8.0.3":
   version: 8.0.5
   resolution: "socks-proxy-agent@npm:8.0.5"
@@ -14834,6 +14940,21 @@ __metadata:
   languageName: node
   linkType: hard
 
+"ws@npm:~8.18.3":
+  version: 8.18.3
+  resolution: "ws@npm:8.18.3"
+  peerDependencies:
+    bufferutil: ^4.0.1
+    utf-8-validate: ">=5.0.2"
+  peerDependenciesMeta:
+    bufferutil:
+      optional: true
+    utf-8-validate:
+      optional: true
+  checksum: 10c0/eac918213de265ef7cb3d4ca348b891a51a520d839aa51cdb8ca93d4fa7ff9f6ccb339ccee89e4075324097f0a55157c89fa3f7147bde9d8d7e90335dc087b53
+  languageName: node
+  linkType: hard
+
 "xcode@npm:^3.0.1":
   version: 3.0.1
   resolution: "xcode@npm:3.0.1"
@@ -14879,6 +15000,13 @@ __metadata:
   version: 0.5.0
   resolution: "xmldom@npm:0.5.0"
   checksum: 10c0/68e81d96ffdae8366d0d8888196b960aadd526896897aab3c579a70625e396fdc2e14305aeb77a786598c6a46a2df36276dc9cfe0b8f22ccab68cff543d5fec7
+  languageName: node
+  linkType: hard
+
+"xmlhttprequest-ssl@npm:~2.1.1":
+  version: 2.1.2
+  resolution: "xmlhttprequest-ssl@npm:2.1.2"
+  checksum: 10c0/70d60869323e823f473a238f78fd108437edbc3690ecd5859c39c83217080090a18899b272e515769c0d1f518cc64cbed6b6995b23fdd7ba13b297d530b6e631
   languageName: node
   linkType: hard
 

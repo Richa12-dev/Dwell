@@ -58,7 +58,7 @@ const ReferralsRewards = ({ navigation }) => {
         </View>
 
         {/* Invite Section */}
-        <Text style={styles.subHeading}>Invite Landlords</Text>
+        <Text style={styles.subHeading}>Invite Contractors</Text>
         <Text style={styles.inviteText}>
           Share your referral link and earn rewards when they complete their first job.
         </Text>

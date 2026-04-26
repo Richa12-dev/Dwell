@@ -27,6 +27,11 @@ const Tab = createBottomTabNavigator();
 
 // Custom Tab Bar Overlay Component
 const CustomTabBarOverlay = ({state, descriptors, navigation}) => {
+    
+    // Hide the entire tab bar on the AI Assistant screen
+    const currentRoute = state.routes[state.index]?.name;
+    if (currentRoute === 'AIAssistant') return null;
+   
   const TabBarArr = [
     {
       route: 'Home',

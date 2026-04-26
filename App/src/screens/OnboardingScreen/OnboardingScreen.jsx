@@ -204,11 +204,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp(10),
     alignItems: 'center',
     marginTop: hp(0.5),
+    marginBottom: hp(6),
   },
     textContents: {
     paddingHorizontal: wp(7.5),
     alignItems: 'center',
     marginTop: hp(0.5),
+    marginBottom: hp(6),
   },
   title: {
     fontSize: wp(6.5),
@@ -220,7 +222,7 @@ const styles = StyleSheet.create({
     marginBottom: hp(1.5),
   },
   description: {
-    fontSize: wp(3.8),
+    fontSize: wp(3.6),
     lineHeight: hp(2.8),
     fontFamily: getFontFamily('Nunito-Medium'),
     fontWeight: '500',
@@ -231,9 +233,10 @@ const styles = StyleSheet.create({
   bottomContainer: {
     paddingHorizontal: wp(5),
     paddingBottom: hp(4),
+    marginTop: hp(2),
   },
   paginationStyle: {
-    bottom: hp(16),
+    bottom: hp(18),
   },
   dot: {
     width: 8,

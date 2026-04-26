@@ -1,421 +1,804 @@
-/**
- * WebhookLogMonitor.jsx
- *
- * Admin component to confirm that Twilio SMS webhook hits are reaching
- * your backend at:
- *   POST https://jc80c1t1oh.execute-api.us-east-1.amazonaws.com/prod/channels/twilio/sms/webhook
- *
- * Usage: Mount this in your admin/debug screen.
- * It polls your /health endpoint and lets you manually trigger a test ping
- * to the webhook endpoint to verify connectivity.
- *
- * When Rashaun texts (888) 988-9792:
- *   Twilio → POST /channels/twilio/sms/webhook → your AI → Twilio reply
- *
- * This screen shows you:
- *   1. Backend health status (subsystems live/down)
- *   2. A manual webhook ping button (simulate a fake inbound SMS)
- *   3. An in-app log of all test pings with timestamps and response shapes
- */
-
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Alert,
+  Image,
+  ActivityIndicator,
+  Linking,
+  Animated,
 } from 'react-native';
+import { useDispatch, useSelector } from 'react-redux';
+import { useFocusEffect } from '@react-navigation/native';
+import {
+  heightPercentageToDP as hp,
+  widthPercentageToDP as wp,
+} from 'react-native-responsive-screen';
+import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
+import Voice from '@react-native-voice/voice';
+import { Colors } from '../../Theme';
+import Container from '../../components/Container/Container';
+import {
+  sendChatMessageNew,
+  sendChatMessageWithImage,
+  getAISuggestions,
+} from '../../Redux/Ai/services';
+import {
+  setCurrentSessionId,
+  clearChatMessages,
+  clearChatError,
+  chatSelectors,
+} from '../../Redux/Ai/aiSlice';
+import { loginDataSelectors } from '../../Redux/Login/loginSlice';
+import { getLandlordProperties } from '../../Redux/Properties/services';
+import Hyperlink from 'react-native-hyperlink';
+import { AppIcon } from '../../components/AppIcon';
+import { icons } from '../../Assets';
 
-// ─── Config ───────────────────────────────────────────────────────────────────
-const BASE_URL = 'https://jc80c1t1oh.execute-api.us-east-1.amazonaws.com/prod';
-const HEALTH_URL   = `${BASE_URL}/health`;
-const WEBHOOK_URL  = `${BASE_URL}/channels/twilio/sms/webhook`;
-const POLL_INTERVAL_MS = 30000; // poll health every 30s
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-const timestamp = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-const shortId   = () => Math.random().toString(36).substring(2, 8).toUpperCase();
-
-// Builds a fake Twilio-style SMS webhook payload
-const buildFakeTwilioPayload = (fromNumber = '+19175550001') => {
-  const params = new URLSearchParams({
-    MessageSid:     `SM${shortId()}${shortId()}`,
-    AccountSid:     'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-    From:           fromNumber,
-    To:             '+18889889792',
-    Body:           'Test SMS from admin panel — is the webhook live?',
-    NumMedia:       '0',
-    SmsStatus:      'received',
-    ApiVersion:     '2010-04-01',
-  });
-  return params.toString();
+// ─── Workflow badge ───────────────────────────────────────────────────────────
+const WORKFLOW_LABELS = {
+  maintenance_ticket: { label: '🔧 Maintenance ticket', color: '#e65100' },
+  rent_inquiry:       { label: '💰 Rent inquiry',       color: '#1565c0' },
+  lease_question:     { label: '📄 Lease question',     color: '#4527a0' },
 };
-
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-const Badge = ({ status }) => {
-  const map = {
-    healthy:     { bg: '#e6f9f0', text: '#0f6e56', label: 'Healthy' },
-    unhealthy:   { bg: '#fff0f0', text: '#991f1f', label: 'Unhealthy' },
-    checking:    { bg: '#fff8e6', text: '#7a4f00', label: 'Checking…' },
-    unknown:     { bg: '#f5f5f5', text: '#555',    label: 'Unknown' },
-  };
-  const s = map[status] || map.unknown;
+const WorkflowBadge = ({ workflowType, workflowStatus }) => {
+  if (!workflowType) return null;
+  const meta     = WORKFLOW_LABELS[workflowType] || { label: workflowType, color: '#555' };
+  const isDenied = workflowStatus === 'denied';
   return (
-    <View style={[styles.badge, { backgroundColor: s.bg }]}>
-      <View style={[styles.badgeDot, { backgroundColor: s.text }]} />
-      <Text style={[styles.badgeText, { color: s.text }]}>{s.label}</Text>
+    <View style={[badgeStyles.row, { borderColor: meta.color }]}>
+      <Text style={[badgeStyles.label, { color: meta.color }]}>{meta.label}</Text>
+      {isDenied && <Text style={badgeStyles.denied}>· access denied</Text>}
     </View>
   );
 };
+const badgeStyles = StyleSheet.create({
+  row:    {
+    flexDirection: 'row', alignItems: 'center', borderWidth: 1,
+    borderRadius: wp(3), paddingHorizontal: wp(2), paddingVertical: hp(0.4),
+    marginBottom: hp(0.6), alignSelf: 'flex-start',
+  },
+  label:  { fontSize: hp(1.4), fontWeight: '600' },
+  denied: { fontSize: hp(1.4), color: '#b71c1c', marginLeft: wp(1) },
+});
 
-// ─── Log Entry ────────────────────────────────────────────────────────────────
-const LogEntry = ({ entry }) => {
-  const [expanded, setExpanded] = useState(false);
-  const isSuccess = entry.ok;
+// ─── Waveform (ChatGPT style animated bars) ───────────────────────────────────
+const BAR_COUNT = 30;
+const VoiceWaveform = () => {
+  const anims = useRef(
+    Array.from({ length: BAR_COUNT }, () => new Animated.Value(0.15))
+  ).current;
+
+  useEffect(() => {
+    const loops = anims.map((anim, i) => {
+      const delay    = (i * 60) % 500;
+      const duration = 250 + (i % 5) * 80;
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: 0.2 + (i % 3) * 0.3, duration, useNativeDriver: false }),
+          Animated.timing(anim, { toValue: 0.15,                 duration, useNativeDriver: false }),
+        ])
+      );
+    });
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, []);
 
   return (
-    <TouchableOpacity
-      onPress={() => setExpanded(e => !e)}
-      style={[styles.logEntry, isSuccess ? styles.logSuccess : styles.logError]}
-      activeOpacity={0.8}>
-      <View style={styles.logHeader}>
-        <View style={styles.logMeta}>
-          <Text style={styles.logTime}>{entry.time}</Text>
-          <Text style={[styles.logType, { color: isSuccess ? '#0f6e56' : '#991f1f' }]}>
-            {entry.label}
-          </Text>
-        </View>
-        <Text style={styles.logStatusCode}>
-          {entry.status ? `HTTP ${entry.status}` : entry.error ? 'Error' : '—'}
-        </Text>
-      </View>
-
-      {expanded && (
-        <View style={styles.logDetail}>
-          <Text style={styles.logDetailText} selectable>
-            {JSON.stringify(entry.data, null, 2)}
-          </Text>
-        </View>
-      )}
-
-      <Text style={styles.logExpand}>{expanded ? '▲ collapse' : '▼ tap to expand'}</Text>
-    </TouchableOpacity>
+    <View style={waveStyles.wrapper}>
+      {anims.map((anim, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            waveStyles.bar,
+            {
+              height: anim.interpolate({
+                inputRange:  [0, 1],
+                outputRange: [hp(0.5), hp(3.2)],
+              }),
+            },
+          ]}
+        />
+      ))}
+    </View>
   );
 };
+const waveStyles = StyleSheet.create({
+  wrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: wp(1),
+  },
+  bar: {
+    width: wp(0.7),
+    borderRadius: wp(0.35),
+    backgroundColor: '#D64545',
+    marginHorizontal: wp(0.25),
+  },
+});
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-const WebhookLogMonitor = () => {
-  const [healthStatus, setHealthStatus]     = useState('unknown');
-  const [subsystems, setSubsystems]         = useState({});
-  const [healthChecking, setHealthChecking] = useState(false);
-  const [lastHealthTime, setLastHealthTime] = useState(null);
+// ─── MessageItem ──────────────────────────────────────────────────────────────
+const MessageItem = React.memo(({ msg }) => {
+  const isUser  = msg.type === 'user';
+  const isError = msg.isError || false;
+  const messageContent = msg.message || msg.text || msg.content || '';
 
-  const [pinging, setPinging]     = useState(false);
-  const [logs, setLogs]           = useState([]);
-
-  const pollRef = useRef(null);
-
-  // ── Health check ─────────────────────────────────────────────────────────
-  const checkHealth = useCallback(async (silent = false) => {
-    if (!silent) setHealthChecking(true);
-    try {
-      const res  = await fetch(HEALTH_URL, { method: 'GET', headers: { Accept: 'application/json' } });
-      const data = await res.json().catch(() => ({}));
-      const ok   = data?.ok === true && data?.data?.status === 'ok';
-
-      setHealthStatus(ok ? 'healthy' : 'unhealthy');
-      setSubsystems(data?.data?.subsystems || {});
-      setLastHealthTime(timestamp());
-
-      if (!silent) {
-        addLog({
-          label:  'Health check',
-          ok,
-          status: res.status,
-          data:   data?.data || data,
-        });
-      }
-    } catch (err) {
-      setHealthStatus('unhealthy');
-      if (!silent) {
-        addLog({ label: 'Health check', ok: false, error: err.message, data: { error: err.message } });
-      }
-    } finally {
-      if (!silent) setHealthChecking(false);
+  const handleLinkPress = useCallback((url) => {
+    let cleanUrl = url.trim();
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      cleanUrl = `https://${cleanUrl}`;
     }
+    Linking.canOpenURL(cleanUrl)
+      .then((ok) => { if (ok) Linking.openURL(cleanUrl); else Alert.alert('Error', 'Cannot open this link'); })
+      .catch(() => Alert.alert('Error', 'Could not open the link'));
   }, []);
-
-  // ── Webhook ping ──────────────────────────────────────────────────────────
-  const pingWebhook = useCallback(async () => {
-    setPinging(true);
-    const payload = buildFakeTwilioPayload();
-
-    try {
-      const res  = await fetch(WEBHOOK_URL, {
-        method:  'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json, text/xml, */*',
-        },
-        body: payload,
-      });
-
-      let data;
-      const contentType = res.headers.get('content-type') || '';
-      const raw = await res.text();
-
-      if (contentType.includes('json')) {
-        try { data = JSON.parse(raw); } catch { data = { raw }; }
-      } else {
-        // Twilio webhooks often return TwiML XML — just show the raw text
-        data = { raw, note: 'Response is TwiML/XML — webhook received the request!' };
-      }
-
-      const ok = res.ok || res.status < 400;
-      addLog({ label: 'Webhook ping', ok, status: res.status, data });
-
-      if (ok) {
-        Alert.alert(
-          '✅ Webhook hit confirmed',
-          `HTTP ${res.status} — your backend received the fake SMS.\nCheck your server logs for the full processing trace.`,
-          [{ text: 'Got it' }]
-        );
-      } else {
-        Alert.alert('⚠️ Webhook responded with error', `HTTP ${res.status}\n\n${raw.slice(0, 300)}`);
-      }
-    } catch (err) {
-      addLog({ label: 'Webhook ping', ok: false, error: err.message, data: { error: err.message } });
-      Alert.alert('❌ Webhook unreachable', err.message);
-    } finally {
-      setPinging(false);
-    }
-  }, []);
-
-  const addLog = (entry) => {
-    setLogs(prev => [{ id: Date.now(), time: timestamp(), ...entry }, ...prev].slice(0, 50));
-  };
-
-  const clearLogs = () => {
-    Alert.alert('Clear logs', 'Remove all log entries?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear', style: 'destructive', onPress: () => setLogs([]) },
-    ]);
-  };
-
-  // ── Polling ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    checkHealth(true); // silent initial check
-    pollRef.current = setInterval(() => checkHealth(true), POLL_INTERVAL_MS);
-    return () => clearInterval(pollRef.current);
-  }, [checkHealth]);
-
-  // ── Render ────────────────────────────────────────────────────────────────
-  const subsystemEntries = Object.entries(subsystems);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-
-      {/* Header */}
-      <Text style={styles.title}>SMS Webhook Monitor</Text>
-      <Text style={styles.subtitle}>
-        Confirms hits to:{'\n'}
-        <Text style={styles.url}>/channels/twilio/sms/webhook</Text>
+    <View style={[
+      styles.messageContainer,
+      isUser ? styles.userMessage : styles.botMessage,
+      isError && styles.errorMessage,
+    ]}>
+      {!isUser && msg.source && (
+        <Text style={styles.sourceIndicator}>AI Assistant</Text>
+      )}
+      {msg.hasImage && msg.imageUri && (
+        <View style={styles.messageImageContainer}>
+          <Image source={{ uri: msg.imageUri }} style={styles.messageImage} resizeMode="cover" />
+        </View>
+      )}
+      {isUser && msg.isVoice && (
+        <Text style={styles.voiceBadge}>🎤 Voice message</Text>
+      )}
+      {!isUser && (msg.workflowType || msg.executionType === 'hybrid') && (
+        <WorkflowBadge workflowType={msg.workflowType} workflowStatus={msg.workflowStatus} />
+      )}
+      <Hyperlink
+        linkDefault
+        linkStyle={{ color: isUser ? '#FFE5E5' : Colors.red, textDecorationLine: 'underline', fontWeight: '500' }}
+        onPress={handleLinkPress}>
+        <Text style={[styles.messageText, { color: isError ? '#d32f2f' : Colors.black }]}>
+          {messageContent}
+        </Text>
+      </Hyperlink>
+      <Text style={[styles.timestamp, { color: isError ? '#d32f2f' : Colors.gray }]}>
+        {msg.timestamp
+          ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          : 'Now'}
       </Text>
+    </View>
+  );
+}, (prev, next) => prev.msg.id === next.msg.id);
 
-      {/* Health card */}
-      <View style={styles.card}>
-        <View style={styles.cardRow}>
-          <Text style={styles.cardTitle}>Backend health</Text>
-          {healthChecking
-            ? <ActivityIndicator size="small" color="#1D9E75" />
-            : <Badge status={healthStatus} />}
+// ─── AIAssistant ──────────────────────────────────────────────────────────────
+const AIAssistant = ({ navigation, route }) => {
+  const [messageText, setMessageText]               = useState('');
+  const [isComponentMounted, setIsComponentMounted] = useState(false);
+  const [selectedImage, setSelectedImage]           = useState(null);
+  const [showSuggestions, setShowSuggestions]       = useState(true);
+  const [localSuggestions, setLocalSuggestions]     = useState([]);
+
+  // ── Voice ────────────────────────────────────────────────────────────────────
+  // isRecording  — true while the mic is active (waveform UI shown)
+  // voiceReady   — true after ✓: transcript is in TextInput, ready to review/send
+  const [isRecording, setIsRecording] = useState(false);
+  const [voiceReady, setVoiceReady]   = useState(false);
+
+  // Refs so Voice callbacks always see the latest values without stale closures
+  const isRecordingRef     = useRef(false);
+  const accumulatedTextRef = useRef('');   // text built across auto-restart windows
+  const isVoiceMessageRef  = useRef(false);
+
+  const scrollViewRef  = useRef(null);
+  const lastMessageRef = useRef('');
+  const isMountedRef   = useRef(true);
+
+  const dispatch = useDispatch();
+
+  const { loading, messages, error, suggestions, isTyping } =
+    useSelector(chatSelectors.getChatData);
+  const token            = useSelector(loginDataSelectors.getAccessToken);
+  const landlordId       = useSelector(loginDataSelectors.getLandlordId);
+  const currentSessionId = useSelector((state) => state.ai?.currentSessionId || null);
+  const isAnyLoading     = loading || isTyping;
+
+  const getAvailableToken = useCallback(() => {
+    if (!token || token === 'null') return null;
+    return token;
+  }, [token]);
+
+  // ─── Helpers: stop Voice cleanly ─────────────────────────────────────────────
+  const stopVoice = useCallback(async () => {
+    isRecordingRef.current = false;
+    try { await Voice.stop(); } catch { /* ignore */ }
+  }, []);
+
+  const cancelVoice = useCallback(async () => {
+    isRecordingRef.current = false;
+    try { await Voice.cancel(); } catch { /* ignore */ }
+  }, []);
+
+  // ─── Voice listeners ─────────────────────────────────────────────────────────
+  //
+  // iOS STT closes after ~60 s of silence.  We auto-restart every time the
+  // engine closes so the user never has to tap again mid-sentence.
+  // Text from every window is appended so nothing is lost.
+  //
+  useEffect(() => {
+    // Show accumulated + current partial while speaking
+    Voice.onSpeechPartialResults = (e) => {
+      if (!isMountedRef.current) return;
+      const partial  = e.value?.[0] || '';
+      const combined = (accumulatedTextRef.current + ' ' + partial).trim();
+      setMessageText(combined);
+    };
+
+    // Window closed with a final result → append and restart if still recording
+    Voice.onSpeechResults = (e) => {
+      if (!isMountedRef.current) return;
+      const finalText = e.value?.[0] || '';
+      if (finalText) {
+        accumulatedTextRef.current = (accumulatedTextRef.current + ' ' + finalText).trim();
+        setMessageText(accumulatedTextRef.current);
+        isVoiceMessageRef.current  = true;
+      }
+      if (isRecordingRef.current) {
+        Voice.start('en-US').catch(() => {
+          isRecordingRef.current = false;
+          setIsRecording(false);
+        });
+      }
+    };
+
+    // Engine timed out on silence → restart if still recording
+    Voice.onSpeechEnd = () => {
+      if (!isMountedRef.current || !isRecordingRef.current) return;
+      Voice.start('en-US').catch(() => {
+        isRecordingRef.current = false;
+        setIsRecording(false);
+      });
+    };
+
+    // Suppress "no speech" / "cancelled" errors; only surface real ones
+    Voice.onSpeechError = (e) => {
+      if (!isMountedRef.current) return;
+      const code        = String(e.error?.code || '');
+      const silentCodes = ['5', '7', '203', '1110'];
+      if (isRecordingRef.current && !silentCodes.includes(code)) {
+        isRecordingRef.current = false;
+        setIsRecording(false);
+        Alert.alert('Voice Error', e.error?.message || 'Voice recognition failed');
+      }
+    };
+
+    return () => {
+      Voice.destroy().then(Voice.removeAllListeners).catch(() => {});
+    };
+  }, []);
+
+  // ─── Tap mic: start recording ─────────────────────────────────────────────
+  const handleVoiceStart = useCallback(async () => {
+    if (isAnyLoading) return;
+
+    // Reset accumulated buffer for a fresh recording session
+    accumulatedTextRef.current = '';
+    isVoiceMessageRef.current  = false;
+    setMessageText('');
+    setVoiceReady(false);
+
+    try {
+      await Voice.start('en-US');
+      isRecordingRef.current = true;
+      setIsRecording(true);
+    } catch (e) {
+      Alert.alert('Voice Error', e.message || 'Could not start voice recognition');
+    }
+  }, [isAnyLoading]);
+
+  // ─── Tap ✓ (confirm): stop mic, put transcript in TextInput ──────────────
+  const handleVoiceConfirm = useCallback(async () => {
+    await stopVoice();
+    setIsRecording(false);
+
+    const transcript = accumulatedTextRef.current.trim();
+    if (transcript) {
+      setMessageText(transcript);
+      isVoiceMessageRef.current = true;
+      setVoiceReady(true);        // show normal input bar so user can review & send
+    } else {
+      setVoiceReady(false);       // nothing captured — go back to normal silently
+    }
+  }, [stopVoice]);
+
+  // ─── Tap ✕ (cancel): discard everything ──────────────────────────────────
+  const handleVoiceCancel = useCallback(async () => {
+    await cancelVoice();
+    accumulatedTextRef.current = '';
+    isVoiceMessageRef.current  = false;
+    setIsRecording(false);
+    setVoiceReady(false);
+    setMessageText('');           // clear input — nothing shows in the text field
+  }, [cancelVoice]);
+
+  // ─── Init ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    setIsComponentMounted(true);
+    isMountedRef.current = true;
+    if (!currentSessionId) dispatch(setCurrentSessionId(`session-${Date.now()}`));
+    dispatch(clearChatError());
+    return () => {
+      isMountedRef.current = false;
+      setIsComponentMounted(false);
+      Voice.destroy().catch(() => {});
+    };
+  }, [dispatch, currentSessionId]);
+
+  // ─── Focus ────────────────────────────────────────────────────────────────
+  useFocusEffect(
+    useCallback(() => {
+      const shouldHide = route?.params?.hideSuggestions || false;
+      if (messages.length === 0) {
+        setShowSuggestions(!shouldHide);
+        if (!shouldHide) loadSuggestions('getting started');
+      }
+      return () => {
+        if (isRecordingRef.current) stopVoice();
+      };
+    }, [route?.params?.hideSuggestions, messages.length])
+  );
+
+  // ─── Auto scroll ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (messages.length > 0 && isComponentMounted) {
+      setTimeout(() => {
+        if (isMountedRef.current && scrollViewRef.current) {
+          scrollViewRef.current.scrollToEnd({ animated: true });
+        }
+      }, 100);
+    }
+  }, [messages.length, isComponentMounted]);
+
+  useEffect(() => {
+    if (suggestions.length > 0) setLocalSuggestions(suggestions.slice(0, 4));
+  }, [suggestions]);
+
+  const loadSuggestions = useCallback(async (context) => {
+    if (!isMountedRef.current) return;
+    try {
+      const result = await dispatch(
+        getAISuggestions({ context, sessionId: currentSessionId })
+      ).unwrap();
+      if (isMountedRef.current) setLocalSuggestions(result.suggestions?.slice(0, 4) || []);
+    } catch {
+      if (isMountedRef.current) {
+        setLocalSuggestions([
+          "My sink is leaking",
+          "Toilet won't flush",
+          "There's a crack in the wall",
+          "How do I fix a dripping tap?",
+        ]);
+      }
+    }
+  }, [dispatch, currentSessionId]);
+
+  // ─── Image picker ─────────────────────────────────────────────────────────
+  const handleImageResponse = useCallback((response) => {
+    if (response.didCancel) return;
+    if (response.errorCode) { Alert.alert('Image Error', response.errorMessage || 'Failed'); return; }
+    const asset = response.assets?.[0];
+    if (!asset) return;
+    setSelectedImage({
+      uri:      asset.uri,
+      base64:   asset.base64   || null,
+      type:     asset.type     || 'image/jpeg',
+      fileName: asset.fileName || `photo-${Date.now()}.jpg`,
+    });
+  }, []);
+
+  const IMAGE_PICKER_OPTIONS = {
+    mediaType: 'photo', quality: 0.5, maxWidth: 800, maxHeight: 800, includeBase64: true,
+  };
+
+  const handleImagePicker = useCallback(() => {
+    Alert.alert('Select Image', 'Choose an image source', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Camera',  onPress: () => launchCamera({ ...IMAGE_PICKER_OPTIONS, saveToPhotos: true }, handleImageResponse) },
+      { text: 'Gallery', onPress: () => launchImageLibrary(IMAGE_PICKER_OPTIONS, handleImageResponse) },
+    ]);
+  }, [handleImageResponse]);
+
+  // ─── Refresh properties if AI updated something ───────────────────────────
+  const refreshPropertiesIfUpdated = useCallback((aiResponse) => {
+    if (!aiResponse || !landlordId) return;
+    const keywords = ['updated', 'changed', 'modified', 'set to', 'availability',
+      'rent', 'monthly_rent', 'price', 'property has been', 'successfully updated'];
+    if (keywords.some((kw) => aiResponse.toLowerCase().includes(kw))) {
+      const t = getAvailableToken();
+      if (t) dispatch(getLandlordProperties({ landlordId, token: t }));
+    }
+  }, [dispatch, landlordId, getAvailableToken]);
+
+  // ─── Send message ─────────────────────────────────────────────────────────
+  const handleSendMessage = useCallback(async (messageOverride = null) => {
+    const trimmedMessage = (messageOverride || messageText).trim();
+    if (!trimmedMessage && !selectedImage) {
+      Alert.alert('Empty Message', 'Please enter a message or select an image.');
+      return;
+    }
+    if (trimmedMessage === lastMessageRef.current && !selectedImage) return;
+    if (isAnyLoading) return;
+    if (!getAvailableToken()) {
+      Alert.alert('Not Logged In', 'Please log in to use the AI Assistant.');
+      return;
+    }
+
+    let sessionIdToUse = currentSessionId;
+    if (!sessionIdToUse) {
+      sessionIdToUse = `session-${Date.now()}`;
+      dispatch(setCurrentSessionId(sessionIdToUse));
+    }
+
+    const currentImage = selectedImage;
+    const wasVoice     = isVoiceMessageRef.current && !messageOverride;
+
+    if (!messageOverride) setMessageText('');
+    setSelectedImage(null);
+    setVoiceReady(false);
+    isVoiceMessageRef.current = false;
+    accumulatedTextRef.current = '';
+    lastMessageRef.current     = trimmedMessage;
+    setShowSuggestions(false);
+
+    try {
+      let result;
+      if (currentImage?.uri) {
+        result = await dispatch(
+          sendChatMessageWithImage({
+            message:     trimmedMessage || undefined,
+            imageUri:    currentImage.uri,
+            imageBase64: currentImage.base64 || undefined,
+            sessionId:   sessionIdToUse,
+            ocrHint:     trimmedMessage || undefined,
+            captionHint: trimmedMessage || undefined,
+          })
+        ).unwrap();
+      } else {
+        result = await dispatch(
+          sendChatMessageNew({
+            message:   trimmedMessage,
+            sessionId: sessionIdToUse,
+            isVoice:   wasVoice,
+          })
+        ).unwrap();
+      }
+      if (result?.response && isMountedRef.current) refreshPropertiesIfUpdated(result.response);
+      setTimeout(() => { lastMessageRef.current = ''; }, 1000);
+    } catch (err) {
+      if (!messageOverride) setMessageText(trimmedMessage);
+      if (currentImage)     setSelectedImage(currentImage);
+      lastMessageRef.current    = '';
+      isVoiceMessageRef.current = false;
+      const errMsg = typeof err === 'string' ? err : err?.message || err?.error || 'Failed to send.';
+      Alert.alert('Message Failed', errMsg, [{ text: 'OK' }]);
+    }
+  }, [
+    messageText, selectedImage, currentSessionId, isAnyLoading,
+    dispatch, getAvailableToken, refreshPropertiesIfUpdated,
+  ]);
+
+  const handleSuggestionPress = useCallback((s) => handleSendMessage(s), [handleSendMessage]);
+
+  // ─── Clear chat ───────────────────────────────────────────────────────────
+  const handleClearChat = useCallback(() => {
+    Alert.alert('Clear Chat', 'Are you sure you want to clear all messages?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear', style: 'destructive',
+        onPress: () => {
+          dispatch(clearChatMessages());
+          lastMessageRef.current     = '';
+          accumulatedTextRef.current = '';
+          isVoiceMessageRef.current  = false;
+          setVoiceReady(false);
+          setShowSuggestions(!(route?.params?.hideSuggestions || false));
+          setSelectedImage(null);
+          setMessageText('');
+          if (!(route?.params?.hideSuggestions)) setTimeout(() => loadSuggestions('getting started'), 0);
+        },
+      },
+    ]);
+  }, [dispatch, loadSuggestions, route?.params?.hideSuggestions]);
+
+  // ─── Suggestions ─────────────────────────────────────────────────────────
+  const renderSuggestions = useMemo(() => {
+    if (!showSuggestions || localSuggestions.length === 0 || messages.length > 0) return null;
+    return (
+      <View style={styles.suggestionsContainer}>
+        <Text style={styles.suggestionsTitle}>Suggestions:</Text>
+        {localSuggestions.map((s, i) => (
+          <TouchableOpacity key={`sug-${i}`} style={styles.suggestionButton} onPress={() => handleSuggestionPress(s)}>
+            <Text style={styles.suggestionText}>{s}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  }, [showSuggestions, localSuggestions, messages.length, handleSuggestionPress]);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+  return (
+    <Container scroll={false} noPaddingBottom>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? hp(10) : 0}>
+
+        {/* Header */}
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <AppIcon name={icons.arrowBack} size={22} />
+          </TouchableOpacity>
+          {messages.length > 0 && (
+            <TouchableOpacity style={styles.clearButton} onPress={handleClearChat}>
+              <Text style={styles.clearButtonText}>Clear</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {lastHealthTime && (
-          <Text style={styles.lastChecked}>Last checked: {lastHealthTime}</Text>
-        )}
+        {/* Chat area */}
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.chatContainer}
+          contentContainerStyle={styles.chatContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled">
 
-        {subsystemEntries.length > 0 && (
-          <View style={styles.subsystemGrid}>
-            {subsystemEntries.map(([key, val]) => {
-              const ok = val === true || val?.status === 'ok' || val?.healthy === true || val === 'ok';
-              return (
-                <View key={key} style={styles.subsystemItem}>
-                  <Text style={[styles.subsystemDot, { color: ok ? '#0f6e56' : '#991f1f' }]}>
-                    {ok ? '●' : '○'}
-                  </Text>
-                  <Text style={styles.subsystemName}>{key}</Text>
+          {messages.length === 0 && !isAnyLoading && (
+            <View style={styles.welcomeContainer}>
+              <View style={styles.aiIconContainer}>
+                <View style={styles.aiIcon}>
+                  <AppIcon name={icons.ailogo} height={hp(9)} width={hp(18)} />
                 </View>
-              );
-            })}
+              </View>
+              <Text style={styles.welcomeTitle}>Hello! I'm your{'\n'}AI Assistant.</Text>
+              <Text style={styles.welcomeDescription}>
+                Ask me anything — type, speak, or send a photo{'\n'}and I'll analyse it for you.
+              </Text>
+            </View>
+          )}
+
+          {messages.map((msg) => <MessageItem key={msg.id} msg={msg} />)}
+
+          {isAnyLoading && (
+            <View style={[styles.messageContainer, styles.botMessage, styles.typingContainer]}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.typingText}>AI is thinking…</Text>
+            </View>
+          )}
+
+          {renderSuggestions}
+        </ScrollView>
+
+        {/* Image preview */}
+        {selectedImage && !isRecording && (
+          <View style={styles.imagePreviewContainer}>
+            <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} resizeMode="cover" />
           </View>
         )}
 
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => checkHealth(false)}
-          disabled={healthChecking}>
-          <Text style={styles.secondaryButtonText}>
-            {healthChecking ? 'Checking…' : 'Run health check'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+        {/* ── RECORDING BAR — replaces the input bar while mic is active ── */}
+        {isRecording ? (
+          <View style={styles.recordingSection}>
+            {/* ✕ Cancel */}
+            <TouchableOpacity style={styles.voiceActionBtn} onPress={handleVoiceCancel}>
+              <Text style={styles.voiceCancelIcon}>✕</Text>
+            </TouchableOpacity>
 
-      {/* Twilio status notice */}
-      <View style={styles.noticeCard}>
-        <Text style={styles.noticeTitle}>⚠  Twilio verification in progress</Text>
-        <Text style={styles.noticeText}>
-          Submitted 2026-03-25. Inbound SMS hits the webhook but outbound reply
-          SMS to the tenant is held until toll-free verification completes
-          (typically 1–3 weeks). Use the ping below to verify the webhook
-          endpoint is reachable while waiting.
-        </Text>
-      </View>
+            {/* Waveform */}
+            <View style={styles.waveformBox}>
+              <VoiceWaveform />
+            </View>
 
-      {/* Webhook ping */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Webhook connectivity test</Text>
-        <Text style={styles.cardSubtitle}>
-          Sends a fake Twilio SMS payload to your webhook. When Rashaun texts
-          the number for real, your server will receive the same shape.
-        </Text>
+            {/* ✓ Confirm */}
+            <TouchableOpacity style={[styles.voiceActionBtn, styles.voiceConfirmBtn]} onPress={handleVoiceConfirm}>
+              <Text style={styles.voiceConfirmIcon}>✓</Text>
+            </TouchableOpacity>
+          </View>
 
-        <TouchableOpacity
-          style={[styles.primaryButton, pinging && styles.buttonDisabled]}
-          onPress={pingWebhook}
-          disabled={pinging}>
-          {pinging
-            ? <ActivityIndicator size="small" color="#fff" />
-            : <Text style={styles.primaryButtonText}>Ping webhook endpoint</Text>}
-        </TouchableOpacity>
-      </View>
+        ) : (
+          /* ── NORMAL INPUT BAR ── */
+          <View style={styles.inputSection}>
+            <View style={styles.inputBox}>
+              <TextInput
+                style={styles.textInput}
+                value={messageText}
+                onChangeText={(t) => {
+                  setMessageText(t);
+                  // User edited manually — no longer a pure voice message
+                  if (voiceReady) {
+                    isVoiceMessageRef.current = false;
+                    setVoiceReady(false);
+                  }
+                }}
+                placeholder={
+                  selectedImage ? 'Describe the issue (or leave blank)…' : 'Type your message…'
+                }
+                placeholderTextColor="#555"
+                multiline
+                maxLength={1000}
+                editable={!isAnyLoading}
+              />
 
-      {/* Logs */}
-      <View style={styles.logsHeader}>
-        <Text style={styles.cardTitle}>Activity log</Text>
-        {logs.length > 0 && (
-          <TouchableOpacity onPress={clearLogs}>
-            <Text style={styles.clearText}>Clear</Text>
-          </TouchableOpacity>
+              {/* Mic button */}
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={handleVoiceStart}
+                disabled={isAnyLoading}>
+                <AppIcon name={icons.aiVoice} height={hp(3)} width={hp(3)} />
+              </TouchableOpacity>
+
+              {/* Image picker button */}
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={handleImagePicker}
+                disabled={isAnyLoading}>
+                <AppIcon name={icons.aiImage} height={hp(3)} width={hp(3)} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Send */}
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                (isAnyLoading || (!messageText.trim() && !selectedImage)) && styles.sendButtonDisabled,
+              ]}
+              onPress={() => handleSendMessage()}
+              disabled={isAnyLoading || (!messageText.trim() && !selectedImage)}>
+              <AppIcon name={icons.send} height={hp(3)} width={hp(3)} />
+            </TouchableOpacity>
+          </View>
         )}
-      </View>
 
-      {logs.length === 0 ? (
-        <View style={styles.emptyLogs}>
-          <Text style={styles.emptyText}>
-            No activity yet. Run a health check or ping the webhook.
-          </Text>
-        </View>
-      ) : (
-        logs.map(entry => <LogEntry key={entry.id} entry={entry} />)
-      )}
-
-    </ScrollView>
+      </KeyboardAvoidingView>
+    </Container>
   );
 };
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f8f6' },
-  content:   { padding: 16, paddingBottom: 40 },
+  container:     { flex: 1 },
+  chatContainer: { flex: 1 },
+  chatContent:   { flexGrow: 1, paddingHorizontal: wp(4), paddingVertical: hp(2) },
 
-  title:    { fontSize: 20, fontWeight: '700', color: '#1a1a18', marginBottom: 4 },
-  subtitle: { fontSize: 13, color: '#666', marginBottom: 16 },
-  url:      { fontFamily: 'monospace', color: '#533AB7', fontSize: 11 },
-
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#ebebeb',
+  headerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: wp(4), paddingVertical: hp(1),
   },
-  cardRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  cardTitle:    { fontSize: 15, fontWeight: '600', color: '#1a1a18' },
-  cardSubtitle: { fontSize: 13, color: '#777', marginTop: 4, marginBottom: 12, lineHeight: 18 },
-  lastChecked:  { fontSize: 12, color: '#999', marginBottom: 10 },
+  clearButton:     { paddingHorizontal: wp(3), paddingVertical: hp(0.6), backgroundColor: 'rgba(214,69,69,0.1)', borderRadius: wp(4) },
+  clearButtonText: { fontSize: hp(1.6), color: Colors.black, fontWeight: '600' },
 
-  subsystemGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 },
-  subsystemItem: { flexDirection: 'row', alignItems: 'center', width: '50%', marginBottom: 4 },
-  subsystemDot:  { fontSize: 10, marginRight: 6 },
-  subsystemName: { fontSize: 12, color: '#555', textTransform: 'capitalize' },
-
-  badge:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  badgeDot:  { width: 7, height: 7, borderRadius: 4, marginRight: 6 },
-  badgeText: { fontSize: 12, fontWeight: '600' },
-
-  primaryButton: {
-    backgroundColor: '#D64545',
-    borderRadius: 10,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginTop: 4,
+  welcomeContainer:   { alignItems: 'center', paddingHorizontal: wp(6), marginTop: hp(-2), marginBottom: hp(2) },
+  aiIconContainer:    { marginBottom: hp(1) },
+  aiIcon: {
+    width: hp(15), height: hp(15), borderRadius: hp(7.5),
+    backgroundColor: Colors.red, justifyContent: 'center', alignItems: 'center',
+    elevation: 8, shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10,
   },
-  primaryButtonText: { color: '#fff', fontWeight: '600', fontSize: 14 },
-  buttonDisabled:    { opacity: 0.5 },
-
-  secondaryButton: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
-    marginTop: 8,
+  welcomeTitle: {
+    fontSize: hp(3), fontWeight: 'bold', color: Colors.black,
+    textAlign: 'center', marginBottom: hp(2), lineHeight: hp(3.5),
   },
-  secondaryButtonText: { color: '#444', fontWeight: '500', fontSize: 14 },
-
-  noticeCard: {
-    backgroundColor: '#FAEEDA',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#EF9F27',
+  welcomeDescription: {
+    fontSize: hp(1.5), color: Colors.gray, textAlign: 'center',
+    lineHeight: hp(2.5), marginBottom: hp(2),
   },
-  noticeTitle: { fontSize: 13, fontWeight: '600', color: '#633806', marginBottom: 6 },
-  noticeText:  { fontSize: 12, color: '#7a4f00', lineHeight: 18 },
 
-  logsHeader: {
+  messageContainer: {
+    maxWidth: '80%', marginVertical: hp(1), padding: wp(3.5),
+    borderRadius: wp(4), elevation: 2, shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2,
+  },
+  userMessage:     { alignSelf: 'flex-end', backgroundColor: Colors.white },
+  botMessage:      { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.95)', borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)' },
+  errorMessage:    { backgroundColor: '#ffebee', borderColor: '#ffcdd2' },
+  sourceIndicator: { fontSize: hp(1.4), color: Colors.gray, marginBottom: hp(0.5), fontWeight: '600' },
+  messageText:     { fontSize: hp(2), lineHeight: hp(2.6) },
+  timestamp:       { fontSize: hp(1.4), marginTop: hp(0.5), opacity: 0.7 },
+  voiceBadge:      { fontSize: hp(1.4), color: Colors.gray, marginBottom: hp(0.4) },
+
+  messageImageContainer: { marginBottom: hp(1), borderRadius: wp(2), overflow: 'hidden' },
+  messageImage:          { width: wp(50), height: wp(35), borderRadius: wp(2) },
+
+  typingContainer: { flexDirection: 'row', alignItems: 'center', paddingVertical: hp(2) },
+  typingText:      { fontSize: hp(2), color: Colors.gray, fontStyle: 'italic', marginLeft: wp(2) },
+
+  suggestionsContainer: { marginTop: hp(-3), paddingHorizontal: wp(2) },
+  suggestionsTitle:     { fontSize: hp(1.8), fontWeight: '600', color: Colors.black, marginBottom: hp(1.5) },
+  suggestionButton: {
+    backgroundColor: 'rgba(255,255,255,0.95)', borderWidth: 1.5, borderColor: Colors.black,
+    borderRadius: wp(6), paddingHorizontal: wp(4), paddingVertical: hp(1.5),
+    marginVertical: hp(0.5), elevation: 1,
+  },
+  suggestionText: { color: Colors.primary, fontSize: hp(1.8), textAlign: 'left' },
+
+  imagePreviewContainer: { margin: wp(4), position: 'relative', alignSelf: 'flex-start' },
+  imagePreview:          { width: wp(25), height: wp(25), borderRadius: wp(3), backgroundColor: '#f0f0f0' },
+
+  // ── Recording bar ──────────────────────────────────────────────────────────
+  recordingSection: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
-    marginTop: 4,
-  },
-  clearText: { fontSize: 13, color: '#D64545', fontWeight: '500' },
-
-  emptyLogs: {
-    padding: 24,
-    alignItems: 'center',
+    marginHorizontal: wp(4),
+    marginBottom: hp(1.5),
+    height: hp(7),
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: wp(8),
     borderWidth: 1,
-    borderColor: '#ebebeb',
+    borderColor: '#EBAFAF',
+    paddingHorizontal: wp(2),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  emptyText: { fontSize: 13, color: '#999', textAlign: 'center' },
-
-  logEntry: {
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
+  waveformBox: {
+    flex: 1,
+    height: '100%',
+    justifyContent: 'center',
   },
-  logSuccess: { backgroundColor: '#f0faf5', borderColor: '#9FE1CB' },
-  logError:   { backgroundColor: '#fff5f5', borderColor: '#F7C1C1' },
+  voiceActionBtn: {
+    width: hp(4.5),
+    height: hp(4.5),
+    borderRadius: hp(2.25),
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  voiceConfirmBtn: {
+    backgroundColor: '#D64545',
+  },
+  voiceCancelIcon: {
+    fontSize: hp(2),
+    color: '#555',
+    fontWeight: '700',
+  },
+  voiceConfirmIcon: {
+    fontSize: hp(2.2),
+    color: '#fff',
+    fontWeight: '700',
+  },
 
-  logHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  logMeta:       { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  logTime:       { fontSize: 11, color: '#999', fontFamily: 'monospace' },
-  logType:       { fontSize: 12, fontWeight: '600' },
-  logStatusCode: { fontSize: 11, color: '#888', fontFamily: 'monospace' },
-  logExpand:     { fontSize: 11, color: '#aaa', marginTop: 4 },
-
-  logDetail:     { backgroundColor: '#1a1a18', borderRadius: 8, padding: 10, marginTop: 8 },
-  logDetailText: { fontSize: 11, color: '#c2e8d1', fontFamily: 'monospace', lineHeight: 16 },
+  // ── Normal input bar ───────────────────────────────────────────────────────
+  inputSection: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginHorizontal: wp(4), marginBottom: hp(1.5),
+  },
+  inputBox: {
+    flexDirection: 'row', alignItems: 'center', flex: 1,
+    backgroundColor: '#fff', borderRadius: wp(2), borderWidth: 1, borderColor: '#EBAFAF',
+    paddingHorizontal: wp(3), paddingVertical: hp(1),
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+  },
+  textInput:  { flex: 1, fontSize: hp(2), color: '#000', paddingRight: wp(2), maxHeight: hp(10) },
+  iconButton: { marginLeft: wp(1), paddingHorizontal: wp(1.5) },
+  sendButton: {
+    marginLeft: wp(2), width: hp(6), height: hp(6), borderRadius: hp(3),
+    backgroundColor: '#D64545', justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#D64545', shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25, shadowRadius: 4, elevation: 5,
+  },
+  sendButtonDisabled: { opacity: 0.5 },
 });
 
-export default WebhookLogMonitor;
+export default AIAssistant;

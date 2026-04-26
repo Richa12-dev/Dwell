@@ -2,6 +2,8 @@
 
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import Toast from 'react-native-simple-toast';
+import { Config } from '../../config';
+import { navigate, resetRoot } from '../../navigation/RouterServices';
 
 // ─── Base URLs ────────────────────────────────────────────────────────────────
 
@@ -13,6 +15,8 @@ const JOBS_BASE_URL =
   'https://b3bhds2qt5.execute-api.us-east-1.amazonaws.com/prod/jobs';
 const S3_BASE_URL =
   'https://dwell-maintenance-media.s3.amazonaws.com/';
+
+const BASE_URL = Config.Base_url;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -205,66 +209,38 @@ export const getUnassignedJobs = createAsyncThunk(
 
 export const submitContractorServices = createAsyncThunk(
   'contractor/submitServices',
-  async ({ services, token: providedToken }, { getState, rejectWithValue }) => {
+  async ({ services, token: providedToken, userId: providedUserId }, { getState, rejectWithValue }) => {
     try {
-      const token = providedToken || getToken(getState);
+      const token  = providedToken  || getToken(getState);
+      const userId = providedUserId || getUserId(getState);
+ 
       if (!token) return rejectWithValue('Authentication token missing.');
-
-      if (!Array.isArray(services) || services.length === 0) {
+      if (!Array.isArray(services) || services.length === 0)
         return rejectWithValue('Please select at least one service.');
+ 
+      if (!userId) {
+        // No userId means we can't PATCH — still succeed locally so the user isn't blocked
+        console.warn(' userId not found in state — skipping PATCH /users/:id');
+        Toast.show('Services saved locally. Please update your profile.');
+        return { selectedServices: services };
       }
-
-      const payload = { services: services.map((s) => s.toLowerCase()) };
-      console.log('📤 Submitting Contractor Services:', payload);
-
-      const response = await fetch(CONTRACTOR_SERVICES_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify(payload),
+ 
+      console.log(` PATCH /users/${userId}  serviceType:`, services[0]);
+ 
+      const res  = await fetch(`${BASE_URL}/users/${userId}`, {
+        method:  'PATCH',
+        headers: authHeaders(token),
+        body:    JSON.stringify({ serviceType: services[0] }),
       });
-
-      const data = await parseSafeJSON(response);
-
-      // In Redux/ContractorServices/services.js
-      if (response.ok) {
-        // ✅ Update isFirstLogin to false in Cognito
-        try {
-          const cognitoResponse = await fetch(
-            'https://cognito-idp.us-east-1.amazonaws.com/',
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/x-amz-json-1.1',
-                'X-Amz-Target':
-                  'AmazonCognitoIdentityProvider.UpdateUserAttributes',
-              },
-              body: JSON.stringify({
-                AccessToken: token,
-                UserAttributes: [
-                  { Name: 'custom:isFirstLogin', Value: 'false' },
-                ],
-              }),
-            }
-          );
-
-          console.log('🔵 Cognito status:', cognitoResponse.status);
-          const cognitoData = await cognitoResponse.json();
-          console.log('🔵 Cognito body:', JSON.stringify(cognitoData));
-        } catch (cognitoErr) {
-          console.warn('⚠️ Cognito update error:', cognitoErr);
-        }
-
-        return {
-          selectedServices: services,
-          response: data,
-        };
+      const data = await parseSafeJSON(res);
+ 
+      if (res.ok) {
+        console.log(' PATCH /users/:id success');
+        Toast.show('Services registered successfully!');
+        return { selectedServices: services, user: data };
       }
-
-      const msg = data?.message || data?.error || 'Failed to submit services';
+ 
+      const msg = data?.message || 'Failed to submit services';
       Toast.show(msg);
       return rejectWithValue(msg);
     } catch (err) {
@@ -273,7 +249,101 @@ export const submitContractorServices = createAsyncThunk(
     }
   }
 );
-
+ 
+ 
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONTRACTOR DOCUMENTS  —  UploadDocuments screen
+// ═══════════════════════════════════════════════════════════════════════════════
+ 
+/**
+ * Upload insurance + license documents for contractor certification.
+ *
+ * Per document:
+ *   1. POST /users/documents/upload-url  → { uploadUrl, fileUrl, key }
+ *   2. PUT  {uploadUrl}                  → stream blob directly to S3
+ *
+ * Then PATCH /users/:id to attach the resulting URLs to the user record.
+ *
+ * @param {object} insuranceFile  - DocumentPicker { uri, type, name }
+ * @param {object} licenseFile    - DocumentPicker { uri, type, name }
+ * @param {string} [token]        - override
+ * @param {string} [userId]       - override
+ */
+export const submitContractorDocuments = createAsyncThunk(
+  'contractor/submitDocuments',
+  async ({ insuranceFile, licenseFile, token: providedToken, userId: providedUserId },
+    { getState, rejectWithValue }) => {
+    try {
+      const token  = providedToken  || getToken(getState);
+      const userId = providedUserId || getUserId(getState);
+ 
+      if (!token) return rejectWithValue('Authentication token missing.');
+      if (!insuranceFile || !licenseFile)
+        return rejectWithValue('Both insurance and license files are required.');
+ 
+      // ── Upload one file: presigned URL → S3 PUT ────────────────────────────
+      const uploadDocument = async (file, label) => {
+        console.log(`\n [${label}] Requesting presigned URL: ${file.name}`);
+ 
+        // 1. Get presigned URL
+        const urlRes  = await fetch(`${BASE_URL}/users/documents/upload-url`, {
+          method:  'POST',
+          headers: authHeaders(token),
+          body:    JSON.stringify({ fileName: file.name, contentType: file.type, folder: 'documents' }),
+        });
+        const urlData = await parseSafeJSON(urlRes);
+        if (!urlRes.ok) throw new Error(urlData?.message || `Presigned URL failed for ${label}`);
+ 
+        const { uploadUrl, fileUrl } = urlData;
+        console.log(` [${label}] Presigned URL received. key: ${urlData.key}`);
+ 
+        // 2. PUT file blob to S3
+        const fileBlob = await (await fetch(file.uri)).blob();
+        const s3Res    = await fetch(uploadUrl, {
+          method:  'PUT',
+          headers: { 'Content-Type': file.type },
+          body:    fileBlob,
+        });
+        if (!s3Res.ok) {
+          const errText = await s3Res.text().catch(() => '');
+          throw new Error(`S3 upload failed for ${label} (${s3Res.status}): ${errText}`);
+        }
+ 
+        console.log(` [${label}] S3 upload complete. URL: ${fileUrl}`);
+        return fileUrl;
+      };
+ 
+      const insuranceUrl = await uploadDocument(insuranceFile, 'Insurance');
+      const licenseUrl   = await uploadDocument(licenseFile,   'License');
+ 
+      // ── PATCH /users/:id with document URLs ───────────────────────────────
+      if (userId) {
+        try {
+          const patchRes = await fetch(`${BASE_URL}/users/${userId}`, {
+            method:  'PATCH',
+            headers: authHeaders(token),
+            body:    JSON.stringify({ insuranceDocumentUrl: insuranceUrl, licenseDocumentUrl: licenseUrl }),
+          });
+          const patchData = await parseSafeJSON(patchRes);
+          if (patchRes.ok) {
+            console.log(' PATCH /users/:id with document URLs:', patchData);
+          } else {
+            console.warn('PATCH /users/:id failed (soft):', patchData?.message);
+          }
+        } catch (patchErr) {
+          console.warn(' PATCH /users/:id error (soft):', patchErr.message);
+        }
+      }
+ 
+      Toast.show('Documents submitted successfully!');
+      return { insuranceUrl, licenseUrl, status: 'pending_review' };
+    } catch (err) {
+      console.error('❌ submitContractorDocuments:', err.message);
+      Toast.show(err.message || 'Document upload failed');
+      return rejectWithValue(err.message);
+    }
+  }
+);
 
 /**
  * Fetch a single contractor job by ticket_id.
@@ -288,7 +358,7 @@ export const getContractorJob = createAsyncThunk(
       if (!token)     return rejectWithValue('Authentication token missing.');
 
       const url = `${CONTRACTOR_JOBS_URL}/${ticket_id}`;
-      console.log('📡 Fetching Contractor Job:', url);
+      console.log(' Fetching Contractor Job:', url);
 
       const response = await fetch(url, {
         method: 'GET',
@@ -503,7 +573,7 @@ export const completeContractorJob = createAsyncThunk(
       if (!token)     return rejectWithValue('Authentication token missing.');
 
       const url = `${CONTRACTOR_JOBS_URL}/${ticket_id}/complete`;
-      console.log('📡 Completing Job:', url);
+      console.log(' Completing Job:', url);
 
       const response = await fetch(url, {
         method: 'POST',

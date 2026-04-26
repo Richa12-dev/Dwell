@@ -25,7 +25,7 @@ type ContainerProps = Readonly<{
   scroll?: boolean;
 }>;
 
-const Container = ({ children, style, scroll = true }: ContainerProps) => {
+const Container = ({ children, style, scroll = true, noPaddingBottom = false  }: ContainerProps) => {
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const onScroll = Animated.event(
@@ -68,7 +68,7 @@ const Container = ({ children, style, scroll = true }: ContainerProps) => {
           <View style={[styles.container, style]}>{children}</View>
         </Animated.ScrollView>
       ) : (
-        <View style={[styles.container, styles.noScrollContainer, style]}>
+           <View style={[styles.container, styles.noScrollContainer, { paddingBottom: noPaddingBottom ? hp(2) : hp(12) }, style]}>
           {children}
         </View>
       )}
@@ -132,7 +132,6 @@ const styles = StyleSheet.create({
       ios: hp(7) + hp(9) + hp(2),
       default: hp(9) + hp(2),
     }),
-    paddingBottom: hp(12),
   },
 });
 

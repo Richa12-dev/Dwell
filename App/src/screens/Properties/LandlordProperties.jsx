@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -21,202 +21,244 @@ import { getFontFamily } from "../../utils";
 import { AppIcon } from "../../components/AppIcon";
 import { icons } from "../../Assets";
 import Container from "../../components/Container/Container";
-import { getLandlordProperties } from "../../Redux/Properties/services";
+import { getLandlordProperties } from "../../Redux/Properties/servicesNode";
 import { propertiesSelectors } from "../../Redux/Properties/propertiesSlice";
 import { useFocusEffect } from "@react-navigation/native";
 
-const LandlordProperties = ({ navigation }) => {
-  const dispatch = useDispatch();
-  const screenWidth = Dimensions.get("window").width;
+import {
+  getLandlordRentHistory,
+  getLandlordSummary,
+} from "../../Redux/Rent/services";
+import { rentSelectors } from "../../Redux/Rent/rentSlice";
 
-  // 🔹 Modal state
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState("7 Days");
+const screenWidth = Dimensions.get("window").width;
 
-  // Redux selectors
-  const propertiesData = useSelector(propertiesSelectors.getPropertiesData) || {};
-  const {
-    landlordProperties = [],
-    loading = false,
-    totalProperties = 0,
-  } = propertiesData;
+const FILTER_OPTIONS = [ "3 Months", "6 Months", "1 Year"];
 
-  const authData = useSelector(state => state?.loginData || state?.login || {});
-  const authToken = authData?.accessToken || authData?.token || null;
-  const landlordId = authData?.landlordId || authData?.userData?.landlordId || authData?.user?.landlordId || null;
+const MONTH_NAMES = [
+  "Jan","Feb","Mar","Apr","May","Jun",
+  "Jul","Aug","Sep","Oct","Nov","Dec",
+];
 
-  // Fetch properties on mount
-useFocusEffect(
-    useCallback(() => {
-      if (landlordId && authToken) {
-        dispatch(getLandlordProperties({ landlordId, token: authToken }));
-      }
-    }, [dispatch, landlordId, authToken])
-  );
+const buildChartData = (rentHistory = [], selectedFilter) => {
+  const now       = new Date();
+  const thisMonth = now.getMonth();
+  const thisYear  = now.getFullYear();
 
-
-const propertyStats = useMemo(() => {
-  const total = landlordProperties.length;
-  
-  // Count vacant and occupied properties
-  const vacant = landlordProperties.filter(p =>
-    (p?.availability || '').toLowerCase() === 'available'
-  ).length;
-  const occupied = total - vacant;
-
-  // Calculate rent statistics
-  let totalPotentialRent = 0; // Total rent from all properties (if all were rented)
-  let monthlyIncome = 0; // Only from occupied properties
-  let paidAmount = 0; // For future use when you add payment tracking
-  let pendingAmount = 0; // All occupied property rent (no payment tracking yet)
-
-  landlordProperties.forEach((property, index) => {
-    // ✅ Use monthly_rent (this is the field your API actually uses)
-    const rent = parseFloat(property?.monthly_rent || 0);
-    
-    // Debug: Log first 3 properties to verify data
-    if (index < 3) {
-      console.log(`Property ${index + 1}:`, {
-        name: property.name,
-        monthly_rent: property.monthly_rent,
-        rent: rent,
-        availability: property.availability
-      });
+  const parseRecord = (r) => {
+    if (r?.month != null && r?.year != null) {
+      return { month: parseInt(r.month, 10) - 1, year: parseInt(r.year, 10) };
     }
-    
-    // Add to total potential rent (all properties)
-    totalPotentialRent += rent;
-
-    // Check if property is occupied
-    const availability = (property?.availability || '').toLowerCase();
-    const isOccupied = availability === 'occupied';
-
-    if (isOccupied) {
-      // Add to monthly income (only occupied properties)
-      monthlyIncome += rent;
-      
-      // ⚠️ Since you don't have payment_status in your API:
-      // All occupied property rent is considered PENDING until you add payment tracking
-      pendingAmount += rent;
-      
-      // paidAmount stays 0 for now (you can add payment tracking later)
+    const dateStr = r?.due_date || r?.dueDate || r?.paid_date || r?.paidDate || r?.createdAt;
+    if (dateStr && dateStr !== "N/A") {
+      const d = new Date(dateStr);
+      if (!isNaN(d)) return { month: d.getMonth(), year: d.getFullYear() };
     }
+    return null;
+  };
+
+  const getAmount = (r) =>
+    parseFloat(r?.amount ?? r?.rent_amount ?? r?.monthly_rent ?? 0) || 0;
+
+  // ✅ FIX 2: Helper to check if a record should be counted in the chart.
+  // Only 'paid' records are summed — pending/stale records (e.g. from a previous
+  // tenant with $2600 rent) were inflating the April total to $3050.
+  // If status is empty/unknown we still count it (backward compat with older records).
+  const isPaid = (r) => {
+    const status = (r?.status || r?.payment_status || '').toLowerCase();
+    return !status || status === 'paid';
+  };
+
+  if (selectedFilter === "1 Month") {
+    const weekBuckets = [0, 0, 0, 0];
+    rentHistory.forEach((r) => {
+      if (!isPaid(r)) return;
+      const parsed = parseRecord(r);
+      if (!parsed) return;
+      if (parsed.month !== thisMonth || parsed.year !== thisYear) return;
+      const dateStr = r?.due_date || r?.dueDate || r?.paid_date || r?.paidDate || r?.createdAt;
+      const d = dateStr ? new Date(dateStr) : null;
+      const day = d && !isNaN(d) ? d.getDate() : 15;
+      const weekIndex = Math.min(Math.floor((day - 1) / 7), 3);
+      weekBuckets[weekIndex] += getAmount(r);
+    });
+    return {
+      labels:   ["W1", "W2", "W3", "W4"],
+      datasets: [{ data: weekBuckets.map(v => Math.round(v)), strokeWidth: 2 }],
+    };
+  }
+
+  const monthCount = selectedFilter === "3 Months" ? 3
+    : selectedFilter === "6 Months" ? 6
+    : 12;
+
+  const buckets = [];
+  for (let i = monthCount - 1; i >= 0; i--) {
+    let m = thisMonth - i;
+    let y = thisYear;
+    while (m < 0) { m += 12; y -= 1; }
+    buckets.push({ month: m, year: y, total: 0 });
+  }
+
+  rentHistory.forEach((r) => {
+    if (!isPaid(r)) return;
+    const parsed = parseRecord(r);
+    if (!parsed) return;
+    const bucket = buckets.find(
+      (b) => b.month === parsed.month && b.year === parsed.year
+    );
+    if (bucket) bucket.total += getAmount(r);
   });
 
   return {
-    total,
-    vacant,
-    occupied,
-    totalPotentialRent, // Sum of ALL property rents
-    monthlyIncome, // Sum of OCCUPIED property rents only
-    paidAmount, // 0 for now (no payment tracking)
-    pendingAmount, // Same as monthlyIncome (all occupied rent is pending)
+    labels:   buckets.map((b) => MONTH_NAMES[b.month]),
+    datasets: [{ data: buckets.map((b) => Math.round(b.total)), strokeWidth: 2 }],
   };
-}, [landlordProperties]);
-
-// 🔹 Format currency - Shows full amount without K abbreviation
-const formatCurrency = (amount) => {
-  return `${amount.toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  })}`;
 };
 
-  // 🔹 Get current month name
-  const getCurrentMonth = () => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
-    return `${months[currentMonth]} ${currentYear}`;
-  };
+const LandlordProperties = ({ navigation }) => {
+  const dispatch = useDispatch();
 
-  // 🔹 Chart data for each range (you can replace this with actual revenue data from API)
-  const chartDataSets = {
-    "7 Days": [20, 40, 80, 60, 50, 45, 40],
-    "1 Month": [35, 45, 55, 65],
-    "3 Months": [50, 60, 70],
-    "1 Year": [60, 80, 100, 110],
-  };
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [selectedFilter, setSelectedFilter]         = useState("3 Months");
 
-  // 🔹 Labels depending on selection
-  const getLabels = () => {
-    switch (selectedFilter) {
-      case "1 Month":
-        return ["W1", "W2", "W3", "W4"];
-      case "3 Months":
-        return ["Jan", "Feb", "Mar"];
-      case "1 Year":
-        return ["Q1", "Q2", "Q3", "Q4"];
-      default:
-        return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    }
-  };
+  const propertiesData = useSelector(propertiesSelectors.getPropertiesData) || {};
+  const {
+    landlordProperties = [],
+    loading            = false,
+  } = propertiesData;
 
-  const chartData = {
-    labels: getLabels(),
-    datasets: [
-      {
-        data: chartDataSets[selectedFilter],
-        strokeWidth: 2,
-        color: () => "rgba(229, 57, 53, 1)",
-        withShadow: false,
-        withDots: true,
-      },
-    ],
-  };
+  const authData  = useSelector((state) => state?.loginData || state?.login || {});
+  const authToken = authData?.accessToken || authData?.token || null;
+  const landlordId =
+    authData?.landlordId ||
+    authData?.userData?.landlordId ||
+    authData?.user?.landlordId ||
+    null;
 
-  // ✅ Chart Config — completely transparent background for glass effect
+  const rentHistory     = useSelector(rentSelectors.getRentHistory);
+  const landlordSummary = useSelector(rentSelectors.getLandlordSummary);
+  const rentLoading     = useSelector(rentSelectors.isLoading);
+
+  const isAuthenticated = Boolean(landlordId && authToken);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isAuthenticated) return;
+      dispatch(getLandlordProperties({ landlordId, token: authToken }));
+      dispatch(getLandlordSummary());
+      dispatch(getLandlordRentHistory());
+    }, [dispatch, landlordId, authToken, isAuthenticated])
+  );
+
+  const propertyStats = useMemo(() => {
+    const total  = landlordProperties.length;
+    const vacant = landlordProperties.filter(
+      (p) => {
+        const av = (p?.availability || "").toLowerCase();
+        return av === "available" || av === "vacant" || av === "available soon";
+      }
+    ).length;
+    const occupied = total - vacant;
+
+    let totalPotentialRent = 0;
+    let monthlyIncome      = 0;
+
+    landlordProperties.forEach((property) => {
+      // ✅ read both camelCase and snake_case since normalizeProperty stamps both
+      const rent = parseFloat(property?.monthly_rent || property?.monthlyRent || 0);
+      totalPotentialRent += rent;
+
+      // ✅ FIX 1: normalizeProperty sets availability = "currently occupied" (not "occupied").
+      // The old check === "occupied" never matched so monthlyIncome was always 0.
+      // .includes("occupied") catches both "occupied" and "currently occupied".
+      if ((property?.availability || "").toLowerCase().includes("occupied")) {
+        monthlyIncome += rent;
+      }
+    });
+
+    // Paid = sum of paid records this month.
+    // Uses the same parseRecord() logic as the chart so month/year extraction
+    // is consistent (handles both r.month/r.year AND r.due_date/r.dueDate).
+    // Status check also mirrors the chart: 'paid', 'completed', or empty/null.
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;  // 1-indexed
+    const currentYear  = now.getFullYear();
+
+    const parseRecordDate = (r) => {
+      if (r?.month != null && r?.year != null) {
+        return { month: parseInt(r.month, 10), year: parseInt(r.year, 10) };
+      }
+      const ds = r?.due_date || r?.dueDate || r?.paid_date || r?.paidDate || r?.createdAt;
+      if (ds && ds !== "N/A") {
+        const d = new Date(ds);
+        if (!isNaN(d)) return { month: d.getMonth() + 1, year: d.getFullYear() };
+      }
+      return null;
+    };
+
+    const isPaidStatus = (r) => {
+      const s = (r?.status || r?.payment_status || "").toLowerCase();
+      // treat empty/null, "paid", or "completed" as paid
+      return !s || s === "paid" || s === "completed";
+    };
+
+    let paidAmount = 0;
+    rentHistory.forEach((r) => {
+      if (!isPaidStatus(r)) return;
+      const parsed = parseRecordDate(r);
+      if (!parsed) return;
+      if (parsed.month !== currentMonth || parsed.year !== currentYear) return;
+      paidAmount += parseFloat(r?.amount ?? r?.rent_amount ?? 0) || 0;
+    });
+
+    const pendingAmount = Math.max(0, monthlyIncome - paidAmount);
+
+    return { total, vacant, occupied, totalPotentialRent, monthlyIncome, paidAmount, pendingAmount };
+  }, [landlordProperties, rentHistory]);
+
+  const chartData = useMemo(
+    () => buildChartData(rentHistory, selectedFilter),
+    [rentHistory, selectedFilter]
+  );
+
   const chartConfig = {
-    backgroundColor: "transparent",
-    backgroundGradientFrom: "transparent",
+    backgroundColor:               "transparent",
+    backgroundGradientFrom:        "transparent",
     backgroundGradientFromOpacity: 0,
-    backgroundGradientTo: "transparent",
-    backgroundGradientToOpacity: 0,
-
-    fillShadowGradientFrom: "transparent",
+    backgroundGradientTo:          "transparent",
+    backgroundGradientToOpacity:   0,
+    fillShadowGradientFrom:        "transparent",
     fillShadowGradientFromOpacity: 0,
-    fillShadowGradientTo: "transparent",
-    fillShadowGradientToOpacity: 0,
-
-    color: () => "rgba(229, 57, 53, 1)",
+    fillShadowGradientTo:          "transparent",
+    fillShadowGradientToOpacity:   0,
+    color:      () => "rgba(229, 57, 53, 1)",
     labelColor: () => "rgba(102, 102, 102, 0.8)",
-    propsForDots: {
-      r: "4",
-      strokeWidth: "2",
-      stroke: "#E53935",
-    },
-    propsForBackgroundLines: {
-      strokeWidth: 0,
+    propsForDots: { r: "4", strokeWidth: "2", stroke: "#E53935" },
+    propsForBackgroundLines: { strokeWidth: 0 },
+    formatYLabel: (value) => {
+      const num = parseInt(value, 10);
+      if (num >= 1000) return `$${(num / 1000).toFixed(0)}k`;
+      return `$${num}`;
     },
   };
 
-  // 🔹 Handle filter change
+  const formatCurrency = (amount) =>
+    `${Number(amount).toLocaleString("en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    })}`;
+
   const handleFilterSelect = (option) => {
     setSelectedFilter(option);
     setFilterModalVisible(false);
   };
 
   const quickLinks = [
-    {
-      title: "Add New Property",
-      icon: icons.newProperites,
-      action: () => navigation.navigate("AddProperty"),
-    },
-    {
-      title: "Tenant Management",
-      icon: icons.TenantManagement,
-      action: () => navigation.navigate("TenantManagement"),
-    },
-    {
-      title: "Rent Collection",
-      icon: icons.rentCollection,
-      action: () => navigation.navigate("RentCollection"),
-    },
-    {
-      title: "Maintenance Request",
-      icon: icons.mantenanceRequest,
-      action: () => navigation.navigate("LandlordSupport"),
-    },
+    { title: "Add New Property",    icon: icons.newProperites,      action: () => navigation.navigate("AddPropertiesScreen") },
+    { title: "Tenant Management",   icon: icons.TenantManagement,   action: () => navigation.navigate("TenantManagement") },
+    { title: "Rent Collection",     icon: icons.rentCollection,     action: () => navigation.navigate("RentCollection") },
+    { title: "Maintenance Request", icon: icons.mantenanceRequest,  action: () => navigation.navigate("Support") },
   ];
 
   if (loading && landlordProperties.length === 0) {
@@ -233,95 +275,91 @@ const formatCurrency = (amount) => {
   return (
     <Container>
       <ScrollView contentContainerStyle={styles.container}>
-        {/* Rent Summary Card */}
+
         <View style={styles.summaryCard}>
+
           <View style={styles.summaryTop}>
             <View style={styles.summaryItem}>
               <AppIcon name={icons.rentCollections} size={wp(6)} />
               <View style={{ marginLeft: wp(2) }}>
                 <Text style={styles.summaryNumber}>
-                    ${formatCurrency(propertyStats.totalPotentialRent)}
+                  ${formatCurrency(propertyStats.totalPotentialRent)}
                 </Text>
-                <Text style={styles.summaryLabel}>
-                  Total Rent Collection
-                </Text>
+                <Text style={styles.summaryLabel}>Total Rent Collection</Text>
               </View>
             </View>
-
             <View style={styles.footerItem}>
               <Text style={styles.footerNumber}>
-                  ${formatCurrency(propertyStats.monthlyIncome)}
+                ${formatCurrency(propertyStats.monthlyIncome)}
               </Text>
               <Text style={styles.footerLabel}>Monthly Income</Text>
             </View>
           </View>
 
-          {/* Paid and Pending Amounts */}
           <View style={styles.paymentSummary}>
             <View style={styles.paymentItem}>
-              <View style={[styles.paymentDot, { backgroundColor: '#10B981' }]} />
+              <View style={[styles.paymentDot, { backgroundColor: "#10B981" }]} />
               <View>
                 <Text style={styles.paymentLabel}>Paid</Text>
-                <Text style={[styles.paymentAmount, { color: '#10B981' }]}>
-                  ${propertyStats.paidAmount.toFixed(2)}
+                <Text style={[styles.paymentAmount, { color: "#10B981" }]}>
+                  ${formatCurrency(propertyStats.paidAmount)}
                 </Text>
               </View>
             </View>
-
             <View style={styles.paymentItem}>
-              <View style={[styles.paymentDot, { backgroundColor: '#F59E0B' }]} />
+              <View style={[styles.paymentDot, { backgroundColor: "#F59E0B" }]} />
               <View>
                 <Text style={styles.paymentLabel}>Pending</Text>
-                <Text style={[styles.paymentAmount, { color: '#F59E0B' }]}>
-                  ${propertyStats.pendingAmount.toFixed(2)}
+                <Text style={[styles.paymentAmount, { color: "#F59E0B" }]}>
+                  ${formatCurrency(propertyStats.pendingAmount)}
                 </Text>
               </View>
             </View>
           </View>
 
-          {/* Chart Header with Filter Button */}
           <View style={styles.chartHeader}>
             <TouchableOpacity
               style={styles.chartTitleRow}
               onPress={() => setFilterModalVisible(true)}
               activeOpacity={0.7}
             >
-              <Text style={styles.chartTitle}>
-                Rent Collection (Last {selectedFilter})
-              </Text>
+              <Text style={styles.chartTitle}>Rent Collection ({selectedFilter})</Text>
               <AppIcon name={icons.arrowDown} size={wp(4)} color={Colors.black} />
             </TouchableOpacity>
           </View>
 
-          <LineChart
-            data={chartData}
-            width={screenWidth * 0.85}
-            height={hp(22)}
-            chartConfig={chartConfig}
-            bezier
-            withInnerLines={false}
-            style={{
-              borderRadius: 15,
-            }}
-            transparent={true}
-          />
+          {rentLoading ? (
+            <View style={styles.chartLoadingContainer}>
+              <ActivityIndicator size="small" color={Colors.red} />
+              <Text style={styles.chartLoadingText}>Loading chart data...</Text>
+            </View>
+          ) : (
+            <LineChart
+              data={chartData}
+              width={screenWidth * 0.85}
+              height={hp(22)}
+              chartConfig={chartConfig}
+              bezier
+              withInnerLines={false}
+              style={{ borderRadius: 15 }}
+              transparent={true}
+              decorator={() => null}
+              onDataPointClick={() => {}}
+            />
+          )}
 
-          {/* Footer Summary */}
           <View style={styles.footerSummary}>
             <View style={styles.summaryItem}>
               <AppIcon name={icons.totalProperties} size={wp(6)} />
             </View>
-            
             <View style={styles.footerItem}>
               <Text style={styles.footerNumber}>{propertyStats.total}</Text>
               <Text style={styles.footerLabel}>Total Properties</Text>
             </View>
-
             <View style={styles.footerItem}>
               <Text style={styles.footerNumber}>{propertyStats.vacant}</Text>
               <Text style={styles.footerLabel}>Vacant Properties</Text>
             </View>
-            
             <View style={styles.footerItem}>
               <Text style={[styles.footerNumber, { color: Colors.red }]}>
                 {propertyStats.occupied}
@@ -331,16 +369,11 @@ const formatCurrency = (amount) => {
           </View>
         </View>
 
-        {/* Quick Links */}
         <View style={styles.quickLinksContainer}>
           <Text style={styles.sectionTitle}>Quick Links</Text>
           <View style={styles.quickLinksRow}>
             {quickLinks.map((item, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.linkCard}
-                onPress={item.action}
-              >
+              <TouchableOpacity key={index} style={styles.linkCard} onPress={item.action}>
                 <View style={styles.iconCircle}>
                   <AppIcon name={item.icon} size={wp(8)} />
                 </View>
@@ -350,34 +383,23 @@ const formatCurrency = (amount) => {
           </View>
         </View>
 
-        {/* Filter Modal */}
         <Modal
           visible={filterModalVisible}
           transparent
           animationType="fade"
           onRequestClose={() => setFilterModalVisible(false)}
         >
-          <TouchableWithoutFeedback
-            onPress={() => setFilterModalVisible(false)}
-          >
+          <TouchableWithoutFeedback onPress={() => setFilterModalVisible(false)}>
             <View style={styles.modalOverlay}>
               <View style={styles.modalContent}>
                 <Text style={styles.modalTitle}>Select Time Range</Text>
-                {["7 Days", "1 Month", "3 Months", "1 Year"].map((option) => (
+                {FILTER_OPTIONS.map((option) => (
                   <TouchableOpacity
                     key={option}
-                    style={[
-                      styles.optionButton,
-                      selectedFilter === option && styles.selectedOption,
-                    ]}
+                    style={[styles.optionButton, selectedFilter === option && styles.selectedOption]}
                     onPress={() => handleFilterSelect(option)}
                   >
-                    <Text
-                      style={[
-                        styles.optionText,
-                        selectedFilter === option && styles.selectedOptionText,
-                      ]}
-                    >
+                    <Text style={[styles.optionText, selectedFilter === option && styles.selectedOptionText]}>
                       {option}
                     </Text>
                   </TouchableOpacity>
@@ -386,224 +408,48 @@ const formatCurrency = (amount) => {
             </View>
           </TouchableWithoutFeedback>
         </Modal>
+
       </ScrollView>
     </Container>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: wp(5),
-    paddingVertical: hp(0.5),
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: hp(20),
-  },
-  loadingText: {
-    marginTop: hp(2),
-    fontSize: wp(4),
-    color: Colors.black,
-    fontFamily: getFontFamily("medium"),
-  },
-  summaryCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
-    borderRadius: 15,
-    padding: wp(4),
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 3,
-    marginVertical: hp(1),
-    borderWidth: 2,
-    borderColor: "rgba(229, 57, 53, 0.2)",
-  },
-  summaryTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: hp(2),
-  },
-  summaryItem: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  summaryNumber: {
-    fontSize: wp(5),
-    fontFamily: getFontFamily("bold"),
-    color: Colors.black,
-  },
-  summaryLabel: {
-    fontSize: wp(3),
-    color: "#666",
-    fontFamily: getFontFamily("medium"),
-  },
-  paymentSummary: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingVertical: hp(2),
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#eee",
-    marginBottom: hp(2),
-  },
-  paymentItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: wp(2),
-  },
-  paymentDot: {
-    width: wp(3),
-    height: wp(3),
-    borderRadius: wp(1.5),
-  },
-  paymentLabel: {
-    fontSize: wp(3),
-    color: "#666",
-    fontFamily: getFontFamily("medium"),
-  },
-  paymentAmount: {
-    fontSize: wp(4),
-    fontFamily: getFontFamily("bold"),
-  },
-  chartContainer: {
-    alignItems: "flex-start",
-  },
-  chartHeader: {
-    marginBottom: hp(1),
-  },
-  chartTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-  },
-  chartTitle: {
-    fontSize: wp(3.8),
-    fontFamily: getFontFamily("bold"),
-    color: Colors.black,
-    marginRight: wp(3),
-  },
-  filterButton: {
-    paddingHorizontal: wp(1),
-    paddingVertical: wp(0.5),
-  },
-  chartWrapper: {
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
-    borderRadius: 15,
-    paddingVertical: hp(1.5),
-    paddingHorizontal: wp(2),
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 3,
-    alignItems: "center",
-  },
-  chartStyle: {
-    borderRadius: 15,
-  },
-  footerSummary: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: hp(2),
-    borderTopWidth: 1,
-    borderTopColor: "#eee",
-    paddingTop: hp(1.5),
-  },
-  footerItem: {
-    alignItems: "center",
-    flex: 1,
-  },
-  footerNumber: {
-    fontSize: wp(4.5),
-    fontFamily: getFontFamily("bold"),
-    color: Colors.black,
-  },
-  footerLabel: {
-    fontSize: wp(3),
-    color: "#666",
-    fontFamily: getFontFamily("medium"),
-  },
-  quickLinksContainer: {
-    marginTop: hp(1),
-  },
-  sectionTitle: {
-    fontSize: wp(4.5),
-    fontFamily: getFontFamily("bold"),
-    color: Colors.black,
-    marginBottom: hp(2),
-
-  },
-  quickLinksRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-around",
-  },
-  linkCard: {
-    width: wp(20),
-    alignItems: "center",
-    marginBottom: hp(2),
-  },
-  iconCircle: {
-    width: wp(14),
-    height: wp(14),
-    borderRadius: wp(7),
-    backgroundColor: "#FFF4F4",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: hp(0.5),
-    shadowColor: "#E53935",
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-        borderColor: Colors.lightRed,
-     borderWidth: 1.5,
-  },
-  linkText: {
-    fontSize: wp(3),
-    fontFamily: getFontFamily("medium"),
-    textAlign: "center",
-    color: Colors.black,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContent: {
-    backgroundColor: "#fff",
-    width: wp(70),
-    borderRadius: 10,
-    paddingVertical: hp(3),
-    paddingHorizontal: wp(5),
-    alignItems: "center",
-  },
-  modalTitle: {
-    fontSize: wp(4),
-    fontFamily: getFontFamily("bold"),
-    color: Colors.red,
-    marginBottom: hp(2),
-  },
-  optionButton: {
-    width: "100%",
-    paddingVertical: hp(1.5),
-    borderRadius: 8,
-    alignItems: "center",
-    marginVertical: hp(0.5),
-    backgroundColor: "#f7f7f7",
-  },
-  optionText: {
-    fontSize: wp(3.8),
-    color: Colors.black,
-    fontFamily: getFontFamily("medium"),
-  },
-  selectedOption: {
-    backgroundColor: Colors.red,
-  },
-  selectedOptionText: {
-    color: "#fff",
-  },
+  container:             { paddingHorizontal: wp(5), paddingVertical: hp(0.5) },
+  loadingContainer:      { flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: hp(20) },
+  loadingText:           { marginTop: hp(2), fontSize: wp(4), color: Colors.black, fontFamily: getFontFamily("medium") },
+  summaryCard:           { backgroundColor: "rgba(255,255,255,0.7)", borderRadius: 15, padding: wp(4), shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 5, elevation: 3, marginVertical: hp(1), borderWidth: 2, borderColor: "rgba(229,57,53,0.2)" },
+  summaryTop:            { flexDirection: "row", justifyContent: "space-between", marginBottom: hp(2) },
+  summaryItem:           { flexDirection: "row", alignItems: "center" },
+  summaryNumber:         { fontSize: wp(5), fontFamily: getFontFamily("bold"), color: Colors.black },
+  summaryLabel:          { fontSize: wp(3), color: "#666", fontFamily: getFontFamily("medium") },
+  paymentSummary:        { flexDirection: "row", justifyContent: "space-around", paddingVertical: hp(2), borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#eee", marginBottom: hp(2) },
+  paymentItem:           { flexDirection: "row", alignItems: "center", gap: wp(2) },
+  paymentDot:            { width: wp(3), height: wp(3), borderRadius: wp(1.5) },
+  paymentLabel:          { fontSize: wp(3), color: "#666", fontFamily: getFontFamily("medium") },
+  paymentAmount:         { fontSize: wp(4), fontFamily: getFontFamily("bold") },
+  chartHeader:           { marginBottom: hp(1) },
+  chartTitleRow:         { flexDirection: "row", alignItems: "center", justifyContent: "flex-start" },
+  chartTitle:            { fontSize: wp(3.8), fontFamily: getFontFamily("bold"), color: Colors.black, marginRight: wp(3) },
+  chartLoadingContainer: { height: hp(22), justifyContent: "center", alignItems: "center", gap: hp(1) },
+  chartLoadingText:      { fontSize: wp(3.5), color: "#999", fontFamily: getFontFamily("regular") },
+  footerSummary:         { flexDirection: "row", justifyContent: "space-between", marginTop: hp(2), borderTopWidth: 1, borderTopColor: "#eee", paddingTop: hp(1.5) },
+  footerItem:            { alignItems: "center", flex: 1 },
+  footerNumber:          { fontSize: wp(4.5), fontFamily: getFontFamily("bold"), color: Colors.black },
+  footerLabel:           { fontSize: wp(3), color: "#666", fontFamily: getFontFamily("medium") },
+  quickLinksContainer:   { marginTop: hp(1) },
+  sectionTitle:          { fontSize: wp(4.5), fontFamily: getFontFamily("bold"), color: Colors.black, marginBottom: hp(2) },
+  quickLinksRow:         { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-around" },
+  linkCard:              { width: wp(20), alignItems: "center", marginBottom: hp(2) },
+  iconCircle:            { width: wp(14), height: wp(14), borderRadius: wp(7), backgroundColor: "#FFF4F4", justifyContent: "center", alignItems: "center", marginBottom: hp(0.5), shadowColor: "#E53935", shadowOpacity: 0.1, shadowRadius: 5, elevation: 3, borderColor: Colors.lightRed, borderWidth: 1.5 },
+  linkText:              { fontSize: wp(3), fontFamily: getFontFamily("medium"), textAlign: "center", color: Colors.black },
+  modalOverlay:          { flex: 1, backgroundColor: "rgba(0,0,0,0.3)", justifyContent: "center", alignItems: "center" },
+  modalContent:          { backgroundColor: "#fff", width: wp(70), borderRadius: 10, paddingVertical: hp(3), paddingHorizontal: wp(5), alignItems: "center" },
+  modalTitle:            { fontSize: wp(4), fontFamily: getFontFamily("bold"), color: Colors.red, marginBottom: hp(2) },
+  optionButton:          { width: "100%", paddingVertical: hp(1.5), borderRadius: 8, alignItems: "center", marginVertical: hp(0.5), backgroundColor: "#f7f7f7" },
+  optionText:            { fontSize: wp(3.8), color: Colors.black, fontFamily: getFontFamily("medium") },
+  selectedOption:        { backgroundColor: Colors.red },
+  selectedOptionText:    { color: "#fff" },
 });
 
 export default LandlordProperties;

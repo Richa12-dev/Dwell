@@ -1,49 +1,35 @@
-// Add these new admin-related thunks to your existing services.js file
-
+// adminServices.js — ✅ UPDATED with authFetch
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import Toast from 'react-native-simple-toast';
 import { Config } from '../../config';
 import { navigate, resetRoot } from '../../navigation/RouterServices';
 import { Buffer } from 'buffer';
+import { authFetch } from '../../utils/authFetch';  // ✅ NEW
 
 const base_url = Config.API_URL;
 
-// Admin Login
+// ⚠️ Admin Login — keeps raw fetch (no auth needed for login)
 export const adminLogin = createAsyncThunk(
   'loginSlice/adminLogin',
   async (post, { rejectWithValue }) => {
     const url = `${base_url}/admin/login`;
-
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: post?.email || post?.username,
           password: post?.password,
         }),
       });
-
       const data = await response.json();
-
       if (response.ok && data?.accessToken) {
         Toast.show('Admin login successful');
-
-        let adminId = null;
-        let role = 'admin';
-        let email = '';
-        let firstName = '';
-        let lastName = '';
-
+        let adminId = null, role = 'admin', email = '', firstName = '', lastName = '';
         if (data.idToken) {
           try {
             const tokenParts = data.idToken.split('.');
-            const payload = JSON.parse(
-              Buffer.from(tokenParts[1], 'base64').toString()
-            );
-
+            const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
             email = payload.email || '';
             firstName = payload.given_name || '';
             lastName = payload.family_name || '';
@@ -53,26 +39,11 @@ export const adminLogin = createAsyncThunk(
             console.error('❌ Error decoding admin token:', decodeError);
           }
         }
-
         const adminData = {
-          accessToken: data.accessToken,
-          idToken: data.idToken,
-          refreshToken: data.refreshToken,
-          adminId: adminId,
-          role: role,
-          email: email,
-          firstName: firstName,
-          lastName: lastName,
-          isAdmin: true,
+          accessToken: data.accessToken, idToken: data.idToken, refreshToken: data.refreshToken,
+          adminId, role, email, firstName, lastName, isAdmin: true,
         };
-
-
-
-        // Navigate to admin dashboard
-        setTimeout(() => {
-          resetRoot('AdminDashboard');
-        }, 300);
-
+        setTimeout(() => { resetRoot('AdminDashboard'); }, 300);
         return adminData;
       } else {
         const errorMessage = data?.message || data?.error || 'Invalid admin credentials';
@@ -87,28 +58,16 @@ export const adminLogin = createAsyncThunk(
   }
 );
 
-// Fetch Users by Type (for admin)
+// ✅ Uses authFetch
 export const fetchUsersByType = createAsyncThunk(
   'loginSlice/fetchUsersByType',
-  async ({ userType, accessToken }, { rejectWithValue }) => {
+  async ({ userType }, { rejectWithValue }) => {
     const url = `${base_url}/admin/users/${userType}`;
-
     try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-
+      const response = await authFetch(url, { method: 'GET' });
       const data = await response.json();
-
       if (response.ok) {
-        return {
-          users: data.users || data,
-          userType: userType,
-        };
+        return { users: data.users || data, userType };
       } else {
         const errorMessage = data?.message || `Failed to fetch ${userType}s`;
         Toast.show(errorMessage);
@@ -122,42 +81,31 @@ export const fetchUsersByType = createAsyncThunk(
   }
 );
 
-// Set Admin Viewing User (switch to view user's data)
+// ✅ Uses authFetch
 export const setAdminViewingUser = createAsyncThunk(
   'loginSlice/setAdminViewingUser',
-  async ({ user, userType, accessToken }, { rejectWithValue }) => {
+  async ({ user, userType }, { getState, rejectWithValue }) => {
     const url = `${base_url}/admin/view-as-user`;
-
     try {
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
         body: JSON.stringify({
           userId: user.userId || user.email,
-          userType: userType,
+          userType,
         }),
       });
-
       const data = await response.json();
-
       if (response.ok) {
-        // Prepare user data for viewing
+        const state = getState();
+        const accessToken = state.loginData?.accessToken || state.loginData?.token;
         const viewingUserData = {
           landlordId: userType === 'landlord' ? (user.landlordId || user.userId) : null,
           tenantId: userType === 'tenant' ? (user.tenantId || user.userId) : null,
           contractorId: userType === 'contractor' ? (user.contractorId || user.userId) : null,
-          role: userType,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          phoneNumber: user.phoneNumber,
-          isAdminViewing: true,
-          adminAccessToken: accessToken, // Keep admin token for switching back
+          role: userType, email: user.email, firstName: user.firstName,
+          lastName: user.lastName, phoneNumber: user.phoneNumber,
+          isAdminViewing: true, adminAccessToken: accessToken,
         };
-
         Toast.show(`Viewing as ${user.firstName} ${user.lastName}`);
         return viewingUserData;
       } else {
@@ -173,20 +121,16 @@ export const setAdminViewingUser = createAsyncThunk(
   }
 );
 
-// Exit Admin Viewing Mode (return to admin dashboard)
+// No fetch needed — stays as-is
 export const exitAdminViewingMode = createAsyncThunk(
   'loginSlice/exitAdminViewingMode',
   async (_, { getState }) => {
     const state = getState();
     const adminAccessToken = state.loginData.adminAccessToken;
-
     if (adminAccessToken) {
       Toast.show('Returned to admin view');
-      setTimeout(() => {
-        resetRoot('AdminDashboard');
-      }, 300);
+      setTimeout(() => { resetRoot('AdminDashboard'); }, 300);
     }
-
     return { success: true };
   }
 );

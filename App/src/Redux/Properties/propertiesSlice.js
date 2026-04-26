@@ -1,4 +1,4 @@
-// propertiesSlice.js - Fixed version with correct ID matching and memoized selectors
+// propertiesSlice.js
 import { createSlice, createSelector } from '@reduxjs/toolkit';
 import {
   getProperties,
@@ -9,246 +9,270 @@ import {
   deleteProperty,
   getTenantProperties,
   getTenantById,
-} from './services';
+} from './servicesNode'; // ✅ FIXED: was './services' (Python), now Node.js services
 
 const initialState = {
-  properties: [],
+  properties:         [],
   landlordProperties: [],
-  tenantProperties: [],
-  currentProperty: null,
-  currentTenants: [],
-  loading: false,
-  tenantLoading: false,
-  error: null,
-  totalProperties: 0,
-  totalUnits: 0,
-  occupiedUnits: 0,
-  vacantUnits: 0,
+  tenantProperties:   [],
+  currentProperty:    null,
+  currentTenants:     [],
+  loading:            false,
+  tenantLoading:      false,
+  error:              null,
+  totalProperties:    0,
+  totalUnits:         0,
+  occupiedUnits:      0,
+  vacantUnits:        0,
 };
 
 // ─────────────────────────────────────────────────────────────
-// ✅ FIXED: Resolve property ID across all possible field names
-//    Backend uses property_id; some local objects use propertyId or id
+// resolveId — handles all ID field name variants
+//
+// Node.js backend returns `id`
+// normalizeProperty() stamps `property_id = id` as alias
+// So both fields are always present after normalization
 // ─────────────────────────────────────────────────────────────
 const resolveId = (property) =>
-  property?.property_id || property?.propertyId || property?.id || property?.ID || null;
+  property?.property_id ||
+  property?.propertyId  ||
+  property?.id          ||
+  property?.ID          ||
+  null;
 
-// Recalculate stats from a properties array
+const isOccupiedProperty = (p) => {
+  const av = (p?.availability || p?.availabilityStatus || '').toLowerCase();
+  return av === 'currently occupied' || av === 'under maintenance';
+};
+
 const calcStats = (arr) => ({
   totalProperties: arr.length,
-  totalUnits: arr.reduce((acc, p) => acc + (parseInt(p.bedrooms) || 1), 0),
-  occupiedUnits: arr.reduce((acc, p) => acc + (p.is_available ? 0 : 1), 0),
-  vacantUnits:
-    arr.reduce((acc, p) => acc + (parseInt(p.bedrooms) || 1), 0) -
-    arr.reduce((acc, p) => acc + (p.is_available ? 0 : 1), 0),
+  totalUnits:      arr.reduce((acc, p) => acc + (parseInt(p.bedrooms) || 1), 0),
+  occupiedUnits:   arr.filter(isOccupiedProperty).length,
+  vacantUnits:     arr.filter(p => !isOccupiedProperty(p)).length,
 });
+
+// ─────────────────────────────────────────────────────────────
+// upsertInArray — update if found, push if not found
+//
+// This is the critical fix for the "could not find property" warning.
+// When the backend returns a property that isn't in Redux state yet
+// (e.g. first update after create, or ID mismatch), we insert it
+// instead of silently dropping the update.
+// ─────────────────────────────────────────────────────────────
+const upsertInArray = (arr, updatedProperty, updatedId) => {
+  const index = arr.findIndex(p => resolveId(p) === updatedId);
+  if (index !== -1) {
+    arr[index] = updatedProperty;
+  } else {
+    // ✅ Not found — push it so images are always visible
+    console.log('ℹ️ updateProperty: property not in state, inserting:', updatedId);
+    arr.push(updatedProperty);
+  }
+};
 
 const propertiesSlice = createSlice({
   name: 'properties',
   initialState,
   reducers: {
-    clearError: (state) => { state.error = null; },
+    clearError:           (state) => { state.error = null; },
     clearCurrentProperty: (state) => { state.currentProperty = null; },
-      clearCurrentTenant: (state) => { state.currentTenants = []; },
+    clearCurrentTenant:   (state) => { state.currentTenants = []; },
 
     updatePropertyLocally: (state, action) => {
-      const update = (arr, payload) => {
-        const id = resolveId(payload);
-        const index = arr.findIndex((p) => resolveId(p) === id);
-        if (index !== -1) arr[index] = { ...arr[index], ...payload };
+      const id = resolveId(action.payload);
+      const update = (arr) => {
+        const index = arr.findIndex(p => resolveId(p) === id);
+        if (index !== -1) arr[index] = { ...arr[index], ...action.payload };
       };
-      update(state.properties, action.payload);
-      update(state.landlordProperties, action.payload);
+      update(state.properties);
+      update(state.landlordProperties);
     },
 
     calculateTotals: (state) => {
-      const stats = calcStats(state.landlordProperties);
-      Object.assign(state, stats);
+      Object.assign(state, calcStats(state.landlordProperties));
     },
   },
 
   extraReducers: (builder) => {
     builder
+
       // ──────────────────────────────────────────────────────
       // GET PROPERTIES
       // ──────────────────────────────────────────────────────
       .addCase(getProperties.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+        state.loading = true; state.error = null;
       })
       .addCase(getProperties.fulfilled, (state, { payload }) => {
-        state.loading = false;
-        state.properties = payload;
-        const stats = calcStats(payload);
-        Object.assign(state, stats);
+        state.loading     = false;
+        state.properties  = payload;
+        Object.assign(state, calcStats(payload));
       })
       .addCase(getProperties.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || 'Failed to load properties';
+        state.error   = payload || error.message || 'Failed to load properties';
       })
 
       // ──────────────────────────────────────────────────────
       // GET LANDLORD PROPERTIES
+      // Replaces the entire array — always fresh from server
       // ──────────────────────────────────────────────────────
       .addCase(getLandlordProperties.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+        state.loading = true; state.error = null;
       })
       .addCase(getLandlordProperties.fulfilled, (state, { payload }) => {
-        state.loading = false;
-        state.landlordProperties = payload;
-        const stats = calcStats(payload);
-        Object.assign(state, stats);
+        state.loading             = false;
+        state.landlordProperties  = payload;
+        Object.assign(state, calcStats(payload));
       })
       .addCase(getLandlordProperties.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || 'Failed to load landlord properties';
+        state.error   = payload || error.message || 'Failed to load landlord properties';
       })
 
       // ──────────────────────────────────────────────────────
       // GET SINGLE PROPERTY
+      // Also upserts into landlordProperties so the list stays
+      // fresh after a direct fetch by ID
       // ──────────────────────────────────────────────────────
       .addCase(getProperty.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+        state.loading = true; state.error = null;
       })
       .addCase(getProperty.fulfilled, (state, { payload }) => {
-        state.loading = false;
-        state.currentProperty = payload;
+        state.loading          = false;
+        state.currentProperty  = payload;
+
+        // ✅ Also keep landlordProperties in sync
+        const id = resolveId(payload);
+        if (id) {
+          upsertInArray(state.properties, payload, id);
+          upsertInArray(state.landlordProperties, payload, id);
+          Object.assign(state, calcStats(state.landlordProperties));
+        }
       })
       .addCase(getProperty.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || 'Failed to load property';
+        state.error   = payload || error.message || 'Failed to load property';
       })
 
       // ──────────────────────────────────────────────────────
       // CREATE PROPERTY
       // ──────────────────────────────────────────────────────
       .addCase(createProperty.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+        state.loading = true; state.error = null;
       })
       .addCase(createProperty.fulfilled, (state, { payload }) => {
         state.loading = false;
         const newProperty = payload.property || payload;
-        state.properties.push(newProperty);
-        state.landlordProperties.push(newProperty);
-        const stats = calcStats(state.landlordProperties);
-        Object.assign(state, stats);
+        const newId = resolveId(newProperty);
+
+        // Avoid duplicates if somehow called twice
+        if (newId && !state.landlordProperties.find(p => resolveId(p) === newId)) {
+          state.properties.push(newProperty);
+          state.landlordProperties.push(newProperty);
+        }
+        Object.assign(state, calcStats(state.landlordProperties));
       })
       .addCase(createProperty.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || 'Failed to create property';
+        state.error   = payload || error.message || 'Failed to create property';
       })
 
       // ──────────────────────────────────────────────────────
-      // ✅ FIXED: UPDATE PROPERTY
-      //    Now uses resolveId() so it matches regardless of
-      //    whether the backend returns property_id, propertyId, or id
+      // UPDATE PROPERTY
+      //
+      // ✅ KEY FIX: uses upsertInArray instead of only updating.
+      //    If the property isn't found by ID (ID mismatch between
+      //    what was stored vs what backend echoes back), it inserts
+      //    the updated property so images always appear correctly.
+      //
+      // NOTE: The definitive fix for images is that AddPropertiesScreen
+      //       calls getLandlordProperties after update succeeds, which
+      //       completely replaces the Redux array with fresh server data.
+      //       This case handles the intermediate state.
       // ──────────────────────────────────────────────────────
       .addCase(updateProperty.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+        state.loading = true; state.error = null;
       })
       .addCase(updateProperty.fulfilled, (state, { payload }) => {
         state.loading = false;
         const updatedProperty = payload.property || payload;
 
-        // ✅ FIXED: prefer explicit payload.propertyId (always sent by service)
-        //    before trying to resolve from the property object itself,
-        //    because the backend sometimes doesn't echo property_id back
+        // payload.propertyId is always stamped by servicesNode.js updateProperty thunk
         const updatedId = payload.propertyId || resolveId(updatedProperty);
 
-        // ✅ Stamp property_id onto the object so future resolveId calls work
-        if (updatedId && !updatedProperty.property_id) {
-          updatedProperty.property_id = updatedId;
+        if (!updatedId) {
+          console.warn('⚠️ updateProperty.fulfilled: no ID found in payload', payload);
+          return;
         }
 
-        const updateArray = (arr) => {
-          const index = arr.findIndex((p) => resolveId(p) === updatedId);
-          if (index !== -1) {
-            arr[index] = updatedProperty;
-          } else {
-            console.warn('⚠️ updateProperty: could not find property with id:', updatedId);
-          }
-        };
+        // Ensure property_id is stamped so resolveId always works
+        if (!updatedProperty.property_id) updatedProperty.property_id = updatedId;
+        if (!updatedProperty.id)          updatedProperty.id          = updatedId;
 
-        updateArray(state.properties);
-        updateArray(state.landlordProperties);
+        // ✅ Upsert — update if found, insert if not found
+        upsertInArray(state.properties, updatedProperty, updatedId);
+        upsertInArray(state.landlordProperties, updatedProperty, updatedId);
 
-        // ✅ FIXED: update currentProperty if it matches
+        // Keep currentProperty in sync
         if (state.currentProperty && resolveId(state.currentProperty) === updatedId) {
           state.currentProperty = updatedProperty;
         }
 
-        const stats = calcStats(state.landlordProperties);
-        Object.assign(state, stats);
+        Object.assign(state, calcStats(state.landlordProperties));
       })
       .addCase(updateProperty.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || 'Failed to update property';
+        state.error   = payload || error.message || 'Failed to update property';
       })
 
       // ──────────────────────────────────────────────────────
-      // GET TENANT RENTED PROPERTIES
-      // ──────────────────────────────────────────────────────
-      .addCase(getTenantProperties.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(getTenantProperties.fulfilled, (state, { payload }) => {
-        state.loading = false;
-        state.tenantProperties = payload;
-        state.totalProperties = payload.length;
-        state.totalUnits = payload.reduce((acc, p) => acc + (parseInt(p.bedrooms) || 1), 0);
-        state.occupiedUnits = payload.filter((p) => p.availability === 'occupied').length;
-        state.vacantUnits = 0;
-      })
-      .addCase(getTenantProperties.rejected, (state, { payload, error }) => {
-        state.loading = false;
-        state.error = payload || error.message || 'Failed to load tenant properties';
-      })
-
-      // ──────────────────────────────────────────────────────
-      // ✅ FIXED: DELETE PROPERTY
-      //    Now filters using resolveId() instead of hardcoded .propertyId
+      // DELETE PROPERTY
       // ──────────────────────────────────────────────────────
       .addCase(deleteProperty.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+        state.loading = true; state.error = null;
       })
       .addCase(deleteProperty.fulfilled, (state, { payload }) => {
         state.loading = false;
-
-        // ✅ FIXED: payload from service always sends { propertyId }
-        //    but also guard with property_id just in case
         const deletedId = payload.propertyId || payload.property_id;
 
-        state.properties = state.properties.filter(
-          (p) => resolveId(p) !== deletedId
-        );
-        state.landlordProperties = state.landlordProperties.filter(
-          (p) => resolveId(p) !== deletedId
-        );
+        state.properties        = state.properties.filter(p => resolveId(p) !== deletedId);
+        state.landlordProperties = state.landlordProperties.filter(p => resolveId(p) !== deletedId);
 
         if (state.currentProperty && resolveId(state.currentProperty) === deletedId) {
           state.currentProperty = null;
         }
-
-        const stats = calcStats(state.landlordProperties);
-        Object.assign(state, stats);
+        Object.assign(state, calcStats(state.landlordProperties));
       })
       .addCase(deleteProperty.rejected, (state, { payload, error }) => {
         state.loading = false;
-        state.error = payload || error.message || 'Failed to delete property';
+        state.error   = payload || error.message || 'Failed to delete property';
+      })
+
+      // ──────────────────────────────────────────────────────
+      // GET TENANT PROPERTIES
+      // ──────────────────────────────────────────────────────
+      .addCase(getTenantProperties.pending, (state) => {
+        state.loading = true; state.error = null;
+      })
+      .addCase(getTenantProperties.fulfilled, (state, { payload }) => {
+        state.loading           = false;
+        state.tenantProperties  = payload;
+        state.totalProperties   = payload.length;
+        state.totalUnits        = payload.reduce((acc, p) => acc + (parseInt(p.bedrooms) || 1), 0);
+        state.occupiedUnits     = payload.filter(p => isOccupiedProperty(p)).length;
+        state.vacantUnits       = 0;
+      })
+      .addCase(getTenantProperties.rejected, (state, { payload, error }) => {
+        state.loading = false;
+        state.error   = payload || error.message || 'Failed to load tenant properties';
       })
 
       // ──────────────────────────────────────────────────────
       // GET TENANT BY ID
       // ──────────────────────────────────────────────────────
       .addCase(getTenantById.pending, (state) => {
-        state.tenantLoading = true;
-        state.error = null;
+        state.tenantLoading = true; state.error = null;
       })
       .addCase(getTenantById.fulfilled, (state, { payload }) => {
         state.tenantLoading = false;
@@ -258,17 +282,16 @@ const propertiesSlice = createSlice({
         );
         if (!exists) state.currentTenants.push(payload);
       })
-      
       .addCase(getTenantById.rejected, (state, { payload, error }) => {
-        state.tenantLoading = false;
-        state.error = payload || error.message || 'Failed to load tenant';
-        state.currentTenant = null;
+        state.tenantLoading   = false;
+        state.error           = payload || error.message || 'Failed to load tenant';
+        state.currentTenant   = null;
       });
   },
 });
 
 // ─────────────────────────────────────────────────────────────
-// EXPORT REDUCER + ACTIONS
+// EXPORTS
 // ─────────────────────────────────────────────────────────────
 export const propertiesReducer = propertiesSlice.reducer;
 
@@ -283,25 +306,24 @@ export const {
 // ─────────────────────────────────────────────────────────────
 // SELECTORS
 // ─────────────────────────────────────────────────────────────
-const selectPropertiesState = (state) =>
-  state.properties || state.propertiesData || {};
+const selectPropertiesState = (state) => state.properties || {};
 
 export const propertiesSelectors = {
   getPropertiesData: createSelector(
     [selectPropertiesState],
     (s) => ({
-      loading: s.loading || false,
-      tenantLoading: s.tenantLoading || false,
-      properties: s.properties || [],
+      loading:            s.loading            || false,
+      tenantLoading:      s.tenantLoading      || false,
+      properties:         s.properties         || [],
       landlordProperties: s.landlordProperties || [],
-      tenantProperties: s.tenantProperties || [],
-      currentProperty: s.currentProperty,
-      currentTenant: s.currentTenants || [],
-      error: s.error,
-      totalProperties: s.totalProperties || 0,
-      totalUnits: s.totalUnits || 0,
-      occupiedUnits: s.occupiedUnits || 0,
-      vacantUnits: s.vacantUnits || 0,
+      tenantProperties:   s.tenantProperties   || [],
+      currentProperty:    s.currentProperty,
+      currentTenant:      s.currentTenants     || [],
+      error:              s.error,
+      totalProperties:    s.totalProperties    || 0,
+      totalUnits:         s.totalUnits         || 0,
+      occupiedUnits:      s.occupiedUnits       || 0,
+      vacantUnits:        s.vacantUnits        || 0,
     })
   ),
 
@@ -325,11 +347,11 @@ export const propertiesSelectors = {
     (s) => s.currentProperty
   ),
 
-    getCurrentTenant: createSelector(
-      [selectPropertiesState],
-      (s) => s.currentTenants || []   
-    ),
-    
+  getCurrentTenant: createSelector(
+    [selectPropertiesState],
+    (s) => s.currentTenants || []
+  ),
+
   isLoading: createSelector(
     [selectPropertiesState],
     (s) => s.loading || false

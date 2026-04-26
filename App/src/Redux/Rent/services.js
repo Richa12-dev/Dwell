@@ -1,229 +1,300 @@
 // rentServices.js
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import Toast from 'react-native-simple-toast';
+import { authFetch } from '../../utils/authFetch';
 
-const RENT_DOCS_API_URL = 'https://ntizm5v3r0.execute-api.us-east-1.amazonaws.com/rent-docs';
-const RENT_HISTORY_API_URL = 'https://ntizm5v3r0.execute-api.us-east-1.amazonaws.com/rent-history';
+const BASE_URL = 'https://api.dwellproperties.ai/api/rent';
 
-// GET all rent documents (NO AUTH - DEMO)
-export const getRentDocuments = createAsyncThunk(
-  'rent/getRentDocuments',
+// ─── Helper ───────────────────────────────────────────────────────────────────
+const handleResponse = async (response) => {
+  const contentType = response.headers.get('content-type');
+  let data;
+  if (contentType && contentType.includes('application/json')) {
+    data = await response.json();
+  } else {
+    const text = await response.text();
+    try { data = JSON.parse(text); } catch { data = {}; }
+  }
+  return { ok: response.ok, status: response.status, data };
+};
+
+// ─── GET: Tenant History (current logged-in tenant) ───────────────────────────
+export const getTenantRentHistory = createAsyncThunk(
+  'rent/getTenantRentHistory',
   async (_, { rejectWithValue }) => {
     try {
-      console.log('📄 Fetching rent documents from:', RENT_DOCS_API_URL);
-
-      const response = await fetch(RENT_DOCS_API_URL, {
+      const response = await authFetch(`${BASE_URL}/tenant-history`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
       });
-
-      let data;
-      const contentType = response.headers.get('content-type');
-
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        const textResponse = await response.text();
-        try {
-          data = JSON.parse(textResponse);
-        } catch {
-          data = { documents: [], message: textResponse };
-        }
-      }
-
-      console.log('✅ Documents Response:', data);
-
-      if (response.ok) {
-        return {
-          bucket: data.bucket || '',
-          prefix: data.prefix || '',
-          documents: data.documents || [],
-        };
-      } else {
-        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-        console.error('API Error:', errorMessage);
-        Toast.show(errorMessage);
-        return rejectWithValue(errorMessage);
-      }
+      const { ok, data } = await handleResponse(response);
+      if (ok) return data; // returns array of rent records
+      const msg = data?.message || data?.error || 'Failed to load tenant rent history';
+      Toast.show(msg);
+      return rejectWithValue(msg);
     } catch (err) {
-      console.error('Network/Parse Error:', err);
-      let errorMessage = 'Failed to fetch rent documents';
-
-      if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        errorMessage = 'Network error. Please check your internet connection.';
-      } else if (err.name === 'SyntaxError') {
-        errorMessage = 'Invalid response from server';
-      } else {
-        errorMessage = err.message || errorMessage;
-      }
-
-      Toast.show(errorMessage);
-      return rejectWithValue(errorMessage);
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
     }
   }
 );
 
-// GET all rent history (NO AUTH - DEMO)
-export const getRentHistory = createAsyncThunk(
-  'rent/getRentHistory',
-  async (_, { rejectWithValue }) => {
-    try {
-      console.log('📊 Fetching rent history from:', RENT_HISTORY_API_URL);
-
-      const response = await fetch(RENT_HISTORY_API_URL, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      });
-
-      let data;
-      const contentType = response.headers.get('content-type');
-
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        const textResponse = await response.text();
-        try {
-          data = JSON.parse(textResponse);
-        } catch {
-          data = { rent_history: [], count: 0, message: textResponse };
-        }
-      }
-
-      console.log('✅ Rent History Response:', data);
-
-      if (response.ok) {
-        return {
-          count: data.count || 0,
-          rent_history: data.rent_history || [],
-        };
-      } else {
-        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-        console.error('API Error:', errorMessage);
-        Toast.show(errorMessage);
-        return rejectWithValue(errorMessage);
-      }
-    } catch (err) {
-      console.error('Network/Parse Error:', err);
-      let errorMessage = 'Failed to fetch rent history';
-
-      if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        errorMessage = 'Network error. Please check your internet connection.';
-      } else if (err.name === 'SyntaxError') {
-        errorMessage = 'Invalid response from server';
-      } else {
-        errorMessage = err.message || errorMessage;
-      }
-
-      Toast.show(errorMessage);
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
-
-// GET rent history by specific tenant ID (NO AUTH - DEMO)
+// ─── GET: Rent History for a Specific Tenant (admin/landlord) ─────────────────
 export const getRentHistoryByTenant = createAsyncThunk(
   'rent/getRentHistoryByTenant',
   async (tenantId, { rejectWithValue }) => {
     try {
-      // If no tenantId provided, fetch all rent history
-      if (!tenantId) {
-        console.log('⚠️ No tenant ID provided, fetching all rent history');
-        const response = await fetch(RENT_HISTORY_API_URL, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-        });
-
-        let data;
-        const contentType = response.headers.get('content-type');
-
-        if (contentType && contentType.includes('application/json')) {
-          data = await response.json();
-        } else {
-          const textResponse = await response.text();
-          try {
-            data = JSON.parse(textResponse);
-          } catch {
-            data = { rent_history: [], count: 0, message: textResponse };
-          }
-        }
-
-        console.log('✅ All Rent History Response:', data);
-
-        if (response.ok) {
-          return {
-            count: data.count || 0,
-            rent_history: data.rent_history || [],
-          };
-        } else {
-          const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-          console.error('API Error:', errorMessage);
-          Toast.show(errorMessage);
-          return rejectWithValue(errorMessage);
-        }
-      }
-
-      // Fetch by tenant ID
-      const url = `${RENT_HISTORY_API_URL}?tenant_id=${tenantId}`;
-      console.log('📊 Fetching rent history for tenant:', tenantId);
-
-      const response = await fetch(url, {
+      const response = await authFetch(`${BASE_URL}/tenant/${tenantId}/history`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
       });
-
-      let data;
-      const contentType = response.headers.get('content-type');
-
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        const textResponse = await response.text();
-        try {
-          data = JSON.parse(textResponse);
-        } catch {
-          data = { rent_history: [], count: 0, message: textResponse };
-        }
-      }
-
-      console.log('✅ Tenant Rent History Response:', data);
-
-      if (response.ok) {
-        return {
-          count: data.count || 0,
-          rent_history: data.rent_history || [],
-        };
-      } else {
-        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-        console.error('API Error:', errorMessage);
-        Toast.show(errorMessage);
-        return rejectWithValue(errorMessage);
-      }
+      const { ok, data } = await handleResponse(response);
+      if (ok) return Array.isArray(data) ? data : data?.rent_history || [];
+      const msg = data?.message || data?.error || 'Failed to load rent history';
+      Toast.show(msg);
+      return rejectWithValue(msg);
     } catch (err) {
-      console.error('Network/Parse Error:', err);
-      let errorMessage = 'Failed to fetch tenant rent history';
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
 
-      if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        errorMessage = 'Network error. Please check your internet connection.';
-      } else if (err.name === 'SyntaxError') {
-        errorMessage = 'Invalid response from server';
-      } else {
-        errorMessage = err.message || errorMessage;
-      }
+// ─── GET: Rent History for a Property ─────────────────────────────────────────
+export const getRentHistoryByProperty = createAsyncThunk(
+  'rent/getRentHistoryByProperty',
+  async (propertyId, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(`${BASE_URL}/property/${propertyId}/history`, {
+        method: 'GET',
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return Array.isArray(data) ? data : data?.rent_history || [];
+      const msg = data?.message || data?.error || 'Failed to load property rent history';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
 
-      Toast.show(errorMessage);
-      return rejectWithValue(errorMessage);
+// ─── GET: Landlord Summary ─────────────────────────────────────────────────────
+export const getLandlordSummary = createAsyncThunk(
+  'rent/getLandlordSummary',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(`${BASE_URL}/landlord-summary`, {
+        method: 'GET',
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return data; // { totalRents, paidRents, pendingRents, overdueRents, totalCollected, totalPending }
+      const msg = data?.message || data?.error || 'Failed to load landlord summary';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
+
+// ─── GET: Overdue Rents ────────────────────────────────────────────────────────
+export const getOverdueRents = createAsyncThunk(
+  'rent/getOverdueRents',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(`${BASE_URL}/overdue`, {
+        method: 'GET',
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return Array.isArray(data) ? data : data?.rents || [];
+      const msg = data?.message || data?.error || 'Failed to load overdue rents';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
+
+// ─── GET: Upcoming Rents (next 30 days) ───────────────────────────────────────
+export const getUpcomingRents = createAsyncThunk(
+  'rent/getUpcomingRents',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(`${BASE_URL}/upcoming`, {
+        method: 'GET',
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return Array.isArray(data) ? data : data?.rents || [];
+      const msg = data?.message || data?.error || 'Failed to load upcoming rents';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
+
+// ─── GET: Single Rent by ID ───────────────────────────────────────────────────
+export const getRentById = createAsyncThunk(
+  'rent/getRentById',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(`${BASE_URL}/${id}`, {
+        method: 'GET',
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return data;
+      const msg = data?.message || data?.error || 'Failed to load rent record';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
+
+// ─── POST: Create Rent Record ─────────────────────────────────────────────────
+// payload: { propertyTenantId, month, year }
+export const createRent = createAsyncThunk(
+  'rent/createRent',
+  async ({ propertyTenantId, month, year }, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(BASE_URL, {
+        method: 'POST',
+        body: JSON.stringify({ propertyTenantId, month, year }),
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return data;
+      const msg = data?.message || data?.error || 'Failed to create rent record';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
+
+// ─── POST: Generate Monthly Rent for All Active Tenants ───────────────────────
+// payload: { month, year }
+export const generateMonthlyRent = createAsyncThunk(
+  'rent/generateMonthlyRent',
+  async ({ month, year }, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(
+        `${BASE_URL}/generate-monthly?month=${month}&year=${year}`,
+        { method: 'POST' }
+      );
+      const { ok, data } = await handleResponse(response);
+      if (ok) return data;
+      const msg = data?.message || data?.error || 'Failed to generate monthly rent';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
+
+// ─── POST: Pay Rent ───────────────────────────────────────────────────────────
+// payload: { id, paymentMethod, paymentReference, notes }
+export const payRent = createAsyncThunk(
+  'rent/payRent',
+  async ({ id, paymentMethod, paymentReference, notes }, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(`${BASE_URL}/${id}/pay`, {
+        method: 'POST',
+        body: JSON.stringify({ paymentMethod, paymentReference, notes }),
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return data;
+      const msg = data?.message || data?.error || 'Failed to pay rent';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
+
+// ─── PATCH: Update Rent Status ────────────────────────────────────────────────
+// payload: { id, status }  — status: 'paid' | 'pending' | 'overdue'
+export const updateRentStatus = createAsyncThunk(
+  'rent/updateRentStatus',
+  async ({ id, status }, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(`${BASE_URL}/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return data;
+      const msg = data?.message || data?.error || 'Failed to update rent status';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
+
+// ─── DELETE: Delete Rent Record ───────────────────────────────────────────────
+export const deleteRent = createAsyncThunk(
+  'rent/deleteRent',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(`${BASE_URL}/${id}`, {
+        method: 'DELETE',
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return { id, ...data };
+      const msg = data?.message || data?.error || 'Failed to delete rent record';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    }
+  }
+);
+
+// ─── GET: Full Rent History for Logged-in Landlord ────────────────────────────
+export const getLandlordRentHistory = createAsyncThunk(
+  'rent/getLandlordRentHistory',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await authFetch(`${BASE_URL}/landlord-history`, {
+        method: 'GET',
+      });
+      const { ok, data } = await handleResponse(response);
+      if (ok) return Array.isArray(data) ? data : data?.rent_history || [];
+      const msg = data?.message || data?.error || 'Failed to load landlord rent history';
+      Toast.show(msg);
+      return rejectWithValue(msg);
+    } catch (err) {
+      const msg = err.message || 'Network error';
+      Toast.show(msg);
+      return rejectWithValue(msg);
     }
   }
 );

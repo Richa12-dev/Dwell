@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   StyleSheet,
@@ -24,133 +23,231 @@ import { AppIcon } from '../../components/AppIcon';
 import { icons } from '../../Assets';
 import { getFontFamily } from '../../utils';
 import { Colors } from '../../Theme';
-import { getLandlordTenants } from '../../Redux/Tenants/services';
+
+import { loginDataSelectors } from '../../Redux/Login/loginSlice';
+
+
+import {
+  getRentHistoryByProperty,
+  getLandlordSummary,
+   getLandlordRentHistory,
+} from '../../Redux/Rent/services';
+import { rentSelectors, clearRentData } from '../../Redux/Rent/rentSlice';
+
 import { tenantsSelectors } from '../../Redux/Tenants/tenantsSlice';
+import { getPropertyTenants } from '../../Redux/Tenants/services';
+
+// ─── Field normalizer ─────────────────────────────────────────────────────────
+const normalizeRentCard = (rentRecord, tenantsMap = {}) => {
+ 
+  const tenant =
+    rentRecord?.tenant ||
+    rentRecord?.tenantInfo ||
+    tenantsMap[rentRecord?.tenantId || rentRecord?.tenant_id] ||
+    {};
+
+  // Embedded property object in rent record
+  const property =
+    rentRecord?.property ||
+    rentRecord?.propertyInfo ||
+    {};
+
+  const firstName = tenant?.firstName || tenant?.first_name || '';
+  const lastName  = tenant?.lastName  || tenant?.last_name  || '';
+  const fullName  =
+    tenant?.name ||
+    `${firstName} ${lastName}`.trim() ||
+    rentRecord?.tenant_name ||
+    'Unknown Tenant';
+
+  // Full address from real API fields: streetAddress, city, state, zipCode
+const address =
+  rentRecord?.property?.streetAddress
+    ? `${rentRecord.property.streetAddress}${
+        rentRecord.property.city ? `, ${rentRecord.property.city}` : ''
+      }${
+        rentRecord.property.state ? `, ${rentRecord.property.state}` : ''
+      }`
+    : rentRecord?.property?.address ||
+      rentRecord?.property?.full_address ||
+      rentRecord?.property_address ||
+      'N/A';
+  return {
+    id:               rentRecord?.id || rentRecord?.rent_id,
+    tenant_id:        rentRecord?.tenantId || rentRecord?.tenant_id || tenant?.id,
+    tenant_name:      fullName,
+    property_address: address,
+    due_date:
+      rentRecord?.due_date ||
+      rentRecord?.dueDate  ||
+      rentRecord?.due_on   ||
+      'N/A',
+    paid_date:
+      rentRecord?.paid_date     ||
+      rentRecord?.paidDate      ||
+      rentRecord?.payment_date  ||
+      'N/A',
+    rent_status:
+      rentRecord?.status ||
+      rentRecord?.payment_status ||
+      'pending',
+    payment_mode:
+      rentRecord?.payment_mode  ||
+      rentRecord?.paymentMode   ||
+      rentRecord?.paymentMethod ||
+      'N/A',
+    monthly_rent:
+      rentRecord?.amount != null
+        ? `$${rentRecord.amount}`
+        : rentRecord?.rent_amount != null
+        ? `$${rentRecord.rent_amount}`
+        : rentRecord?.monthly_rent ||
+          'N/A',
+    avatar:
+      tenant?.avatar         ||
+      tenant?.profile_image  ||
+      tenant?.photo          ||
+      rentRecord?.avatar     ||
+      null,
+  };
+};
 
 const RentCollection = () => {
-  const dispatch = useDispatch();
+  const dispatch   = useDispatch();
   const navigation = useNavigation();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const tenantsData = useSelector(tenantsSelectors.getTenantsData) || {};
-  const {
-    landlordTenants: tenants = [],
-    loading = false,
-    error = null,
-    totalTenants = 0,
-  } = tenantsData;
-
-  const authData = useSelector(state => state?.loginData || state?.login || {});
-  const authToken = authData?.accessToken || authData?.token || null;
-  const landlordId = authData?.landlordId || authData?.userData?.landlordId || authData?.user?.landlordId || null;
-
+  // Auth
+  const authData    = useSelector(state => state?.loginData || state?.login || {});
+  const authToken   = authData?.accessToken || authData?.token || null;
+  const landlordId  = authData?.landlordId || authData?.userData?.landlordId || authData?.user?.landlordId || null;
   const isAuthenticated = Boolean(landlordId && authToken);
+  
+  
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      dispatch(getLandlordTenants({ landlordId, token: authToken }));
-    }
-  }, [dispatch, landlordId, authToken, isAuthenticated]);
+  // ✅ Rent data from Redux (driven by getRentHistoryByTenant dispatched per tenant)
+  const rentHistoryRaw = useSelector(rentSelectors.getRentHistory);
+  const rentLoading    = useSelector(rentSelectors.isLoading);
 
-  const handleRefresh = useCallback(() => {
-    if (isAuthenticated) {
-      dispatch(getLandlordTenants({ landlordId, token: authToken }));
-    } else {
-      Toast.show('Please login again');
-    }
-  }, [dispatch, landlordId, authToken, isAuthenticated]);
+  // Tenant list (used to iterate and fetch per-tenant rent if needed)
+  const tenantsData = useSelector(tenantsSelectors.getTenantsData) || {};
+  const { landlordTenants: tenants = [], loading: tenantsLoading = false } = tenantsData;
+  
+  console.log('RentCollection tenants:', tenants?.length, tenants?.[0]?.propertyId);
 
-  const rentCollections = useMemo(() => {
-    return tenants.map(tenant => ({
-      tenant_id: tenant?.tenant_id || tenant?.id,
-      tenant_name: tenant?.name || tenant?.tenant_name ||
-                   `${tenant?.firstName || ''} ${tenant?.lastName || ''}`.trim(),
-      property_address: tenant?.address || tenant?.property_address ||
-                       tenant?.property?.address || '909-1/2 E 49th LA, (CA)..',
-      due_date: tenant?.due_date || tenant?.rent_due_date || '8 Oct, 2025',
-      paid_date: tenant?.paid_date || tenant?.rent_paid_date || '10 Oct, 2025',
-      rent_status: tenant?.status || tenant?.payment_status || 'Paid',
-      payment_mode: tenant?.payment_mode || tenant?.payment_method || 'Bank Transfer',
-      monthly_rent: tenant?.monthly_rent || tenant?.rent_amount || '$2600',
-      avatar: tenant?.avatar || tenant?.profile_image || tenant?.photo || null,
-    }));
+  const loading = rentLoading || tenantsLoading;
+
+
+
+ useEffect(() => {
+  if (!isAuthenticated) return;
+  dispatch(getLandlordSummary());
+  dispatch(getLandlordRentHistory());
+}, [dispatch, isAuthenticated]);
+
+// ── Refresh ──────────────────────────────────────────────────────
+const handleRefresh = useCallback(async () => {
+  if (!isAuthenticated) {
+    Toast.show('Please login again');
+    return;
+  }
+  setIsRefreshing(true);
+  dispatch(clearRentData()); // ✅ Clear stale data FIRST
+  try {
+    await Promise.all([
+      dispatch(getLandlordSummary()).unwrap(),
+      dispatch(getLandlordRentHistory()).unwrap(), // ✅ Then fetch fresh
+    ]);
+  } catch (_) {
+    Toast.show('Failed to refresh');
+  } finally {
+    setIsRefreshing(false);
+  }
+}, [dispatch, isAuthenticated]);
+
+  // Build a lookup map: tenantId → tenant object (for name/avatar fallback)
+  // Real API field from your console: each record has `tenantId` and `tenant: { firstName, lastName }`
+  const tenantsMap = useMemo(() => {
+    const map = {};
+    tenants.forEach(t => {
+      const tid = t?.tenantId || t?.tenant_id;
+      if (tid) map[tid] = t?.tenant || t;
+    });
+    return map;
   }, [tenants]);
 
+  // ✅ Normalize rent records for the card UI
+  const rentCollections = useMemo(
+    () => (rentHistoryRaw || []).map(r => normalizeRentCard(r, tenantsMap)),
+    [rentHistoryRaw, tenantsMap]
+  );
+
   const getStatusColor = (status) => {
-    const statusLower = (status || 'pending').toLowerCase();
-    switch (statusLower) {
-      case 'paid':
-        return '#4CAF50';
-      case 'overdue':
-        return '#E53935';
-      case 'pending':
-        return '#FF9800';
-      default:
-        return '#999';
+    const s = (status || 'pending').toLowerCase();
+    switch (s) {
+      case 'paid':    return '#4CAF50';
+      case 'overdue': return '#E53935';
+      case 'pending': return '#FF9800';
+      default:        return '#999';
     }
   };
 
-  const renderRentCard = ({ item }) => {
-    return (
-      <View style={styles.rentCard}>
-        <HStack alignItems="center" space={3} mb={3}>
-          {item.avatar ? (
-            <Image source={{ uri: item.avatar }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>
-                {item.tenant_name.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
-
-          <VStack flex={1}>
-            <Text style={styles.tenantName}>{item.tenant_name}</Text>
-            <Text style={styles.propertyAddress} numberOfLines={1}>
-              {item.property_address}
+  const renderRentCard = ({ item }) => (
+    <View style={styles.rentCard}>
+      <HStack alignItems="center" space={3} mb={3}>
+        {item.avatar ? (
+          <Image source={{ uri: item.avatar }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatarPlaceholder}>
+            <Text style={styles.avatarText}>
+              {(item.tenant_name || '?').charAt(0).toUpperCase()}
             </Text>
-          </VStack>
-        </HStack>
+          </View>
+        )}
 
-        <HStack justifyContent="space-between" mb={2}>
-          <VStack flex={1}>
-            <Text style={styles.label}>Due Date</Text>
-            <Text style={styles.value}>{item.due_date}</Text>
-          </VStack>
-          <VStack flex={1}>
-            <Text style={styles.label}>Paid Date</Text>
-            <Text style={styles.value}>{item.paid_date}</Text>
-          </VStack>
-          <VStack flex={1} alignItems="flex-end">
-            <Text style={styles.label}>Rent Status</Text>
-            <Badge
-              bg={getStatusColor(item.rent_status)}
-              rounded="md"
-              px={2}
-              py={0.5}
-              _text={{
-                fontSize: 'xs',
-                fontWeight: 'bold',
-                color: 'white',
-              }}
-            >
-              {item.rent_status}
-            </Badge>
-          </VStack>
-        </HStack>
+        <VStack flex={1}>
+          <Text style={styles.tenantName}>{item.tenant_name}</Text>
+          <Text style={styles.propertyAddress} numberOfLines={3}>
+            {item.property_address}
+          </Text>
+        </VStack>
+      </HStack>
 
-        <HStack justifyContent="space-between">
-          <VStack flex={1}>
-            <Text style={styles.label}>Payment Mode</Text>
-            <Text style={styles.value}>{item.payment_mode}</Text>
-          </VStack>
-          <VStack flex={1} alignItems="flex-end">
-            <Text style={styles.label}>Monthly Rent</Text>
-            <Text style={styles.rentAmount}>{item.monthly_rent}</Text>
-          </VStack>
-        </HStack>
-      </View>
-    );
-  };
+      <HStack justifyContent="space-between" mb={2}>
+        <VStack flex={1}>
+          <Text style={styles.label}>Due Date</Text>
+          <Text style={styles.value}>{item.due_date}</Text>
+        </VStack>
+        <VStack flex={1}>
+          <Text style={styles.label}>Paid Date</Text>
+          <Text style={styles.value}>{item.paid_date}</Text>
+        </VStack>
+        <VStack flex={1} alignItems="flex-end">
+          <Text style={styles.label}>Rent Status</Text>
+          <Badge
+            bg={getStatusColor(item.rent_status)}
+            rounded="md"
+            px={2}
+            py={0.5}
+            _text={{ fontSize: 'xs', fontWeight: 'bold', color: 'white' }}
+          >
+            {item.rent_status}
+          </Badge>
+        </VStack>
+      </HStack>
+
+      <HStack justifyContent="space-between">
+        <VStack flex={1}>
+          <Text style={styles.label}>Payment Mode</Text>
+          <Text style={styles.value}>{item.payment_mode}</Text>
+        </VStack>
+        <VStack flex={1} alignItems="flex-end">
+          <Text style={styles.label}>Monthly Rent</Text>
+          <Text style={styles.rentAmount}>{item.monthly_rent}</Text>
+        </VStack>
+      </HStack>
+    </View>
+  );
 
   if (!isAuthenticated) {
     return (
@@ -169,14 +266,9 @@ const RentCollection = () => {
   return (
     <Container scroll={false}>
       {/* Header */}
-      <HStack
-        px={4}
-        py={3}
-        alignItems="center"
-        justifyContent="flex-start"
-      >
+      <HStack px={4} py={3} alignItems="center" justifyContent="flex-start">
         <TouchableOpacity onPress={() => navigation.goBack()}>
-        <AppIcon name={icons.arrowBack} size={24} />
+          <AppIcon name={icons.arrowBack} size={24} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Rent Collection</Text>
         <View style={{ width: 24 }} />
@@ -191,12 +283,12 @@ const RentCollection = () => {
       <FlatList
         data={rentCollections}
         keyExtractor={(item, index) =>
-          String(item?.tenant_id || item?.id || index)
+          String(item?.id || item?.tenant_id || index)
         }
         renderItem={renderRentCard}
         refreshControl={
           <RefreshControl
-            refreshing={loading}
+            refreshing={isRefreshing}
             onRefresh={handleRefresh}
             tintColor="#E53935"
             colors={['#E53935']}
@@ -230,7 +322,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: wp(5),
     fontFamily: getFontFamily('bold'),
-    color:Colors.black,
+    color: Colors.black,
   },
   subtitle: {
     fontSize: wp(3.5),

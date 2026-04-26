@@ -20,7 +20,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import CustomButton from '../../components/CustomButton';
 import { Colors } from '../../Theme';
 import { getFontFamily } from '../../utils';
-import { confirmForgotPassword } from '../../Redux/Login/services';
+import { confirmForgotPassword } from '../../Redux/Login/loginservices';
 import { loginDataSelectors } from '../../Redux/Login/loginSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import {AppIcon} from '../../components/AppIcon';

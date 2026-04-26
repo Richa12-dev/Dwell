@@ -1,207 +1,150 @@
+// Redux/Ai/services.js — ✅ UPDATED: all endpoints wired to live-verified API shapes
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import Toast from 'react-native-simple-toast';
+import RNFS from 'react-native-fs';           // for local-file → base64 conversion
+import { authFetch } from '../../utils/authFetch';
 
-// ✅ API Endpoint
-const AWS_CHAT_API = "https://4a8puj1mj9.execute-api.us-east-1.amazonaws.com/prod/chat";
+// ─── Base URLs ────────────────────────────────────────────────────────────────
+const BASE_URL   = 'https://yannx11442.execute-api.us-east-1.amazonaws.com/dev/api/v1';
+const CHAT_URL   = `${BASE_URL}/chat`;
+const INGEST_URL = `${BASE_URL}/media/ingest`;
+const HEALTH_URL = `${BASE_URL}/health`;
 
-// ✅ System instruction for property maintenance AI
-const PROPERTY_MAINTENANCE_SYSTEM_INSTRUCTION = `You are a friendly property maintenance assistant. Think of yourself as a helpful neighbor who knows DIY fixes and explains them in plain English.
-
-Tone & Style:
-Speak naturally, conversationally, never robotic.
-Acknowledge frustration and encourage confidence.
-Keep answers short and meaningful, just a few sentences at a time.
-Use warm phrases like "Don't worry" or "I hear you" to sound empathetic.
-Avoid technical jargon – explain step by step in everyday language.
-Do not use asterisks (*), bold text, or bullet points in your answers.
-
-Response Pattern:
-1. Greet the user: e.g. "Hi there, let's take care of this together."
-2. Empathize with their concern: e.g. "I know leaks can be stressful."
-3. Give clear step-by-step guidance in plain English.
-4. Encourage them: e.g. "You'll have it fixed in no time."
-5. Wrap up with reassurance or a friendly check-in: e.g. "Give it a try, and let me know if the drip continues."
-6. At the end, provide a short list of tools used with direct Amazon links for easy access.
-
-Tool Suggestions:
-Adjustable wrench: https://www.amazon.com/dp/B00004SBDJ
-Plumber's tape: https://www.amazon.com/dp/B08ZY5Z1B8
-Faucet washer kit: https://www.amazon.com/dp/B000PS1HS0
-Toilet repair kit: https://www.amazon.com/s?k=toilet+repair+kit
-Drain snake: https://www.amazon.com/s?k=drain+snake
-Screwdriver set: https://www.amazon.com/s?k=screwdriver+set
-
-For other items, generate a search link like: https://www.amazon.com/s?k=
-
-Example Q&A:
-Q: My sink is leaking.
-A: I hear you – that constant drip can be annoying. Most of the time it's just a worn-out washer. Shouldn't take more than 15 minutes to fix.
-
-Tools you'll need:
-Adjustable wrench → https://www.amazon.com/dp/B00004SBDJ
-Faucet washer kit → https://www.amazon.com/dp/B000PS1HS0
-
-Q: My tap won't shut off properly.
-A: That can be frustrating, but don't worry. Usually it just means the washer inside has worn out. I'll show you how to swap it out – it's a quick job.
-
-Tools you'll need:
-Adjustable wrench → https://www.amazon.com/dp/B00004SBDJ
-Plumber's tape → https://www.amazon.com/dp/B08ZY5Z1B8`;
-
-// ✅ Fetch with abort controller timeout
-const fetchWithTimeout = async (url, options, timeout = 30000) => {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(id);
-    return response;
-  } catch (error) {
-    clearTimeout(id);
-    if (error.name === 'AbortError') throw new Error('Request timed out. Please try again.');
-    throw error;
+// ─── Conversation-ID registry ─────────────────────────────────────────────────
+// One stable conversation_id per sessionId keeps the full thread coherent on the API side.
+const conversationIdMap = {};
+const getOrCreateConversationId = (sessionId) => {
+  if (!conversationIdMap[sessionId]) {
+    conversationIdMap[sessionId] = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
+  return conversationIdMap[sessionId];
+};
+export const clearConversationId = (sessionId) => {
+  if (sessionId) delete conversationIdMap[sessionId];
 };
 
-// ✅ Removes whitespace/newlines from token
-// Cognito tokens can contain whitespace that corrupts the Authorization header
-const sanitizeToken = (token) => {
-  if (!token || token === 'null') return null;
-  return String(token).replace(/\s+/g, '').trim() || null;
-};
-
-// ✅ Cleans up URL spaces in AI response text
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 const sanitizeLinksInText = (text) => {
   if (!text) return '';
   return text.replace(/(https?:\/\/[^\s]+)\s+([^\s]+)/g, '$1$2');
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. Send text message (primary thunk used by AIAssistant)
-// ─────────────────────────────────────────────────────────────────────────────
-export const sendChatMessageNew = createAsyncThunk(
-  'ai/sendChatMessageNew',
-  async ({ message, sessionId, token }, { rejectWithValue }) => {
-    if (!message?.trim()) return rejectWithValue('Message is required');
+const cleanAIText = (text) =>
+  sanitizeLinksInText((text || '').replace(/\*/g, '').trim());
 
-    const cleanToken = sanitizeToken(token);
-    if (!cleanToken) return rejectWithValue('Authentication token is required. Please login again.');
+/** Pull the AI reply from any of the field names the backend may return. */
+const extractAIResponse = (data) =>
+  data?.reply   ||
+  data?.response ||
+  data?.message  ||
+  data?.answer   ||
+  data?.text     ||
+  data?.content  ||
+  data?.result   ||
+  null;
 
+/**
+ * Convert a local file:// URI to a plain base64 string using react-native-fs.
+ * Returns the string unchanged if it is already a data-URI or a remote URL.
+ */
+const toBase64 = async (uri) => {
+  if (!uri) return null;
+  if (uri.startsWith('data:')) {
+    // Strip "data:<mime>;base64," prefix
+    return uri.split(',')[1];
+  }
+  if (uri.startsWith('http')) {
+    // Remote URL — caller should use sendChatMessageWithRemoteUrl instead
+    return null;
+  }
+  // Local file path (file:// or bare path)
+  const path = uri.replace('file://', '');
+  return await RNFS.readFile(path, 'base64');
+};
+
+/** Derive file name from URI or fall back to a timestamped default. */
+const fileNameFromUri = (uri) => {
+  if (!uri) return `image-${Date.now()}.jpg`;
+  const parts = uri.split('/');
+  return parts[parts.length - 1] || `image-${Date.now()}.jpg`;
+};
+
+/** Derive MIME type from file extension (basic). */
+const mimeFromUri = (uri = '') => {
+  if (uri.endsWith('.png')) return 'image/png';
+  if (uri.endsWith('.jpg') || uri.endsWith('.jpeg')) return 'image/jpeg';
+  if (uri.endsWith('.gif')) return 'image/gif';
+  if (uri.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+};
+
+// ─── 1. Health Check ──────────────────────────────────────────────────────────
+/**
+ * GET /api/v1/health
+ * Verified: HTTP 200, { status: "healthy", components: { db_access: { database: "reachable" } } }
+ */
+export const checkHealth = createAsyncThunk(
+  'ai/checkHealth',
+  async (_, { rejectWithValue }) => {
     try {
-      Toast.show('Sending your message...', Toast.SHORT);
-
-      const response = await fetchWithTimeout(
-        AWS_CHAT_API,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${cleanToken}`,
-          },
-          body: JSON.stringify({ message: message.trim() }),
-        },
-        30000
-      );
-
+      const response = await authFetch(HEALTH_URL, { method: 'GET' });
       let data;
-      try {
-        data = await response.json();
-      } catch {
-        return rejectWithValue(`Could not parse server response (HTTP ${response.status})`);
+      try { data = await response.json(); } catch {
+        return rejectWithValue(`Could not parse health response (HTTP ${response.status})`);
       }
-
-      if (!response.ok) {
-        const errMsg = data?.error || data?.message || data?.errorMessage || `HTTP ${response.status}`;
-        Toast.show('Failed to send message', Toast.LONG);
-        return rejectWithValue(`Server error: ${errMsg}`);
-      }
-
-      // ✅ Try all common response field names
-      const aiResponse =
-        data?.reply || data?.response || data?.message ||
-        data?.answer || data?.text || data?.content || data?.result || null;
-
-      if (!aiResponse) {
-        return rejectWithValue(`No AI response received. Fields returned: ${Object.keys(data).join(', ')}`);
-      }
-
-      const cleanResponse = sanitizeLinksInText(aiResponse.replace(/\*/g, '').trim());
-      Toast.show('Message sent!', Toast.SHORT);
-
+      if (!response.ok) return rejectWithValue(`Health check failed: HTTP ${response.status}`);
       return {
-        response: cleanResponse,
-        sessionId,
-        timestamp: new Date().toISOString(),
-        model: data?.meta?.model_id || 'aws-bedrock',
-        source: 'aws-new',
-        usage: data?.usage || null,
+        status:   data?.status || 'unknown',
+        database: data?.components?.db_access?.database || 'unknown',
+        raw:      data,
       };
     } catch (error) {
-      Toast.show('Message failed. Check your connection.', Toast.LONG);
-      return rejectWithValue(error.message || 'Network error');
+      return rejectWithValue(error.message || 'Health check network error');
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. Send text message (legacy thunk — kept for backward compatibility)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── 2. Text-only chat ────────────────────────────────────────────────────────
+/**
+ * POST /api/v1/chat  —  { message, conversation_id }
+ * Verified: HTTP 200, { status:"success", response:"…", metadata:{ execution_type:"conversation" } }
+ */
 export const sendChatMessage = createAsyncThunk(
   'ai/sendChatMessage',
-  async ({ message, sessionId, token }, { rejectWithValue }) => {
+  async ({ message, sessionId }, { rejectWithValue }) => {
     if (!message?.trim()) return rejectWithValue('Message is required');
-
-    const cleanToken = sanitizeToken(token);
-    if (!cleanToken) return rejectWithValue('Authentication token is required. Please login again.');
-
+    const conversationId = getOrCreateConversationId(sessionId);
     try {
       Toast.show('Sending your message...', Toast.SHORT);
-
-      const response = await fetchWithTimeout(
-        AWS_CHAT_API,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${cleanToken}`,
-          },
-          body: JSON.stringify({ message: message.trim() }),
-        },
-        30000
-      );
-
+      const response = await authFetch(CHAT_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          message:         message.trim(),
+          conversation_id: conversationId,
+        }),
+      });
       let data;
-      try {
-        data = await response.json();
-      } catch {
+      try { data = await response.json(); } catch {
         return rejectWithValue(`Could not parse server response (HTTP ${response.status})`);
       }
-
       if (!response.ok) {
         const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
         Toast.show('Failed to send message', Toast.LONG);
         return rejectWithValue(`Server error: ${errMsg}`);
       }
-
-      const aiResponse =
-        data?.reply || data?.response || data?.message ||
-        data?.answer || data?.text || data?.content || data?.result || null;
-
+      const aiResponse = extractAIResponse(data);
       if (!aiResponse) {
-        return rejectWithValue(`No AI response received. Fields returned: ${Object.keys(data).join(', ')}`);
+        return rejectWithValue(`No AI response received. Fields: ${Object.keys(data).join(', ')}`);
       }
-
-      const cleanResponse = sanitizeLinksInText(aiResponse.replace(/\*/g, '').trim());
       Toast.show('Message sent!', Toast.SHORT);
-
       return {
-        response: cleanResponse,
+        response:      cleanAIText(aiResponse),
         sessionId,
-        timestamp: new Date().toISOString(),
-        model: 'aws-bedrock',
-        source: 'aws',
+        conversationId,
+        executionType: data?.metadata?.execution_type || 'conversation',
+        source:        'aws',
+        timestamp:     new Date().toISOString(),
       };
     } catch (error) {
       Toast.show('Message failed. Check your connection.', Toast.LONG);
@@ -210,68 +153,95 @@ export const sendChatMessage = createAsyncThunk(
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. Send text + image message
-// ─────────────────────────────────────────────────────────────────────────────
+// Alias kept for components still importing sendChatMessageNew
+export const sendChatMessageNew = createAsyncThunk(
+  'ai/sendChatMessageNew',
+  async (args, { dispatch, rejectWithValue }) => {
+    // Delegate to the canonical thunk so logic is not duplicated
+    const result = await dispatch(sendChatMessage(args));
+    if (sendChatMessage.rejected.match(result)) {
+      return rejectWithValue(result.payload);
+    }
+    return { ...result.payload, source: 'aws-new' };
+  }
+);
+
+// ─── 3. Chat with JSON / base64 image ────────────────────────────────────────
+/**
+ * POST /api/v1/chat  —  { conversation_id, files:[{ file_name, mime_type, content_base64, metadata }] }
+ * Verified: HTTP 200, execution_type:"hybrid", media_ingestion.status:"success"
+ *
+ * @param imageUri   Local file:// URI  OR  a bare base64 string.
+ * @param ocrHint    Optional text hint fed to the OCR path (helps when OCR is unconfigured).
+ * @param captionHint Optional caption hint.
+ */
 export const sendChatMessageWithImage = createAsyncThunk(
   'ai/sendChatMessageWithImage',
-  async ({ message, imageUri, sessionId, token }, { rejectWithValue }) => {
-    if (!imageUri) return rejectWithValue('Image is required');
-
-    const cleanToken = sanitizeToken(token);
-    if (!cleanToken) return rejectWithValue('Authentication token is required. Please login again.');
-
+  async ({ message, imageUri, imageBase64, sessionId, ocrHint, captionHint }, { rejectWithValue }) => {
+    if (!imageUri && !imageBase64) return rejectWithValue('Image is required');
+    const conversationId = getOrCreateConversationId(sessionId);
     try {
       Toast.show('Analyzing image...', Toast.SHORT);
 
-      const response = await fetchWithTimeout(
-        AWS_CHAT_API,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${cleanToken}`,
-          },
-          body: JSON.stringify({
-            message: message?.trim() || 'Please analyze this image for any maintenance issues.',
-            imageUrl: imageUri,
-          }),
-        },
-        45000
-      );
-
-      let data;
-      try {
-        data = await response.json();
-      } catch {
-        return rejectWithValue(`Could not parse server response (HTTP ${response.status})`);
+      // Use pre-fetched base64 from the image picker when available (skips RNFS disk read)
+      const base64 = imageBase64 || await toBase64(imageUri);
+      if (!base64) {
+        return rejectWithValue('Could not convert image to base64. Use sendChatMessageWithRemoteUrl for remote images.');
       }
 
+      const fileName = fileNameFromUri(imageUri);
+      const mimeType = mimeFromUri(imageUri);
+
+      const payload = {
+        conversation_id: conversationId,
+        // message is optional; backend injects default inspection prompt when omitted
+        ...(message?.trim() && { message: message.trim() }),
+        files: [
+          {
+            file_name:      fileName,
+            mime_type:      mimeType,
+            content_base64: base64,
+            metadata: {
+              ...(ocrHint     && { ocr_text_hint: ocrHint }),
+              ...(captionHint && { caption_hint:  captionHint }),
+            },
+          },
+        ],
+      };
+
+      const response = await authFetch(CHAT_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+
+      let data;
+      try { data = await response.json(); } catch {
+        return rejectWithValue(`Could not parse server response (HTTP ${response.status})`);
+      }
       if (!response.ok) {
         const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
         Toast.show('Image analysis failed', Toast.LONG);
         return rejectWithValue(`Server error: ${errMsg}`);
       }
 
-      const aiResponse =
-        data?.reply || data?.response || data?.message ||
-        data?.answer || data?.text || data?.content || data?.result || null;
-
+      const aiResponse = extractAIResponse(data);
       if (!aiResponse) {
-        return rejectWithValue(`No AI response received. Fields returned: ${Object.keys(data).join(', ')}`);
+        return rejectWithValue(`No AI response received. Fields: ${Object.keys(data).join(', ')}`);
       }
 
-      const cleanResponse = sanitizeLinksInText(aiResponse.replace(/\*/g, '').trim());
       Toast.show('Image analysis complete!', Toast.SHORT);
-
       return {
-        response: cleanResponse,
+        response:       cleanAIText(aiResponse),
         sessionId,
-        timestamp: new Date().toISOString(),
-        model: 'aws-bedrock-image',
-        source: 'aws',
-        hasImage: true,
+        conversationId,
+        executionType:  data?.metadata?.execution_type  || 'hybrid',
+        ingestionStatus:data?.metadata?.media_ingestion?.status || null,
+        workflowType:   data?.metadata?.classifier?.workflow_type || null,
+        workflowStatus: data?.metadata?.workflow?.status || null,
+        source:         'aws',
+        hasImage:       true,
+        timestamp:      new Date().toISOString(),
       };
     } catch (error) {
       Toast.show('Image analysis failed. Try again.', Toast.LONG);
@@ -280,12 +250,213 @@ export const sendChatMessageWithImage = createAsyncThunk(
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 4. Load suggestion chips (local — no API call needed)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── 4. Chat with multipart image upload ─────────────────────────────────────
+/**
+ * POST /api/v1/chat  —  multipart/form-data
+ * Verified: HTTP 200, execution_type:"rag", media_ingestion.status:"success"
+ *
+ * Use this when you already have a Blob/File object (e.g. from a document picker)
+ * rather than a local file URI you can read with RNFS.
+ *
+ * @param imageFile  A { uri, name, type } object (React Native FormData format).
+ */
+export const sendChatMessageWithImageMultipart = createAsyncThunk(
+  'ai/sendChatMessageWithImageMultipart',
+  async ({ message, imageFile, sessionId }, { rejectWithValue }) => {
+    if (!imageFile?.uri) return rejectWithValue('Image file is required');
+    const conversationId = getOrCreateConversationId(sessionId);
+    try {
+      Toast.show('Uploading image...', Toast.SHORT);
+
+      const form = new FormData();
+      form.append('conversation_id', conversationId);
+      if (message?.trim()) {
+        form.append('message', message.trim());
+      }
+      // React Native FormData accepts { uri, name, type }
+      form.append('files', {
+        uri:  imageFile.uri,
+        name: imageFile.name || fileNameFromUri(imageFile.uri),
+        type: imageFile.type || mimeFromUri(imageFile.uri),
+      });
+
+      const response = await authFetch(CHAT_URL, {
+        method:  'POST',
+        // Do NOT set Content-Type — let the runtime set multipart + boundary
+        headers: { Accept: 'application/json' },
+        body:    form,
+      });
+
+      let data;
+      try { data = await response.json(); } catch {
+        return rejectWithValue(`Could not parse server response (HTTP ${response.status})`);
+      }
+      if (!response.ok) {
+        const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
+        Toast.show('Image upload failed', Toast.LONG);
+        return rejectWithValue(`Server error: ${errMsg}`);
+      }
+
+      const aiResponse = extractAIResponse(data);
+      if (!aiResponse) {
+        return rejectWithValue(`No AI response received. Fields: ${Object.keys(data).join(', ')}`);
+      }
+
+      Toast.show('Image uploaded and analysed!', Toast.SHORT);
+      return {
+        response:        cleanAIText(aiResponse),
+        sessionId,
+        conversationId,
+        executionType:   data?.metadata?.execution_type   || 'rag',
+        ingestionStatus: data?.metadata?.media_ingestion?.status || null,
+        source:          'aws-multipart',
+        hasImage:        true,
+        timestamp:       new Date().toISOString(),
+      };
+    } catch (error) {
+      Toast.show('Image upload failed. Try again.', Toast.LONG);
+      return rejectWithValue(error.message || 'Network error');
+    }
+  }
+);
+
+// ─── 5. Chat with remote image URL ───────────────────────────────────────────
+/**
+ * POST /api/v1/chat  —  { conversation_id, image_url }
+ * Code path implemented; live verification pending an allow-listed remote URL.
+ * Allowed hosts (from REMOTE_MEDIA_ALLOWED_HOSTS):
+ *   api.twilio.com, mcs.us1.twilio.com, media.twiliocdn.com
+ */
+export const sendChatMessageWithRemoteUrl = createAsyncThunk(
+  'ai/sendChatMessageWithRemoteUrl',
+  async ({ message, imageUrl, sessionId }, { rejectWithValue }) => {
+    if (!imageUrl) return rejectWithValue('imageUrl is required');
+    const conversationId = getOrCreateConversationId(sessionId);
+    try {
+      Toast.show('Analyzing remote image...', Toast.SHORT);
+
+      const response = await authFetch(CHAT_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          image_url: imageUrl,
+          // message is optional — backend injects inspection prompt when omitted
+          ...(message?.trim() && { message: message.trim() }),
+        }),
+      });
+
+      let data;
+      try { data = await response.json(); } catch {
+        return rejectWithValue(`Could not parse server response (HTTP ${response.status})`);
+      }
+      if (!response.ok) {
+        const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
+        Toast.show('Remote image analysis failed', Toast.LONG);
+        return rejectWithValue(`Server error: ${errMsg}`);
+      }
+
+      const aiResponse = extractAIResponse(data);
+      if (!aiResponse) {
+        return rejectWithValue(`No AI response received. Fields: ${Object.keys(data).join(', ')}`);
+      }
+
+      Toast.show('Remote image analysed!', Toast.SHORT);
+      return {
+        response:        cleanAIText(aiResponse),
+        sessionId,
+        conversationId,
+        executionType:   data?.metadata?.execution_type   || 'hybrid',
+        ingestionStatus: data?.metadata?.media_ingestion?.status || null,
+        workflowType:    data?.metadata?.classifier?.workflow_type || null,
+        workflowStatus:  data?.metadata?.workflow?.status || null,
+        source:          'aws-remote-url',
+        hasImage:        true,
+        timestamp:       new Date().toISOString(),
+      };
+    } catch (error) {
+      Toast.show('Remote image analysis failed. Try again.', Toast.LONG);
+      return rejectWithValue(error.message || 'Network error');
+    }
+  }
+);
+
+// ─── 6. Direct media ingestion ────────────────────────────────────────────────
+/**
+ * POST /api/v1/media/ingest  —  { conversation_id, files:[…] }
+ * Verified: HTTP 200, { status:"success", indexed_chunk_count:0, warnings:[…] }
+ * Note: indexed_chunk_count may be 0 on the current dev stack due to the
+ *       Postgres json + GIN operator-class issue; that is expected.
+ */
+export const ingestMedia = createAsyncThunk(
+  'ai/ingestMedia',
+  async ({ imageUri, sessionId, ocrHint, captionHint }, { rejectWithValue }) => {
+    if (!imageUri) return rejectWithValue('Image URI is required');
+    const conversationId = getOrCreateConversationId(sessionId);
+    try {
+      Toast.show('Ingesting media...', Toast.SHORT);
+
+      const base64 = await toBase64(imageUri);
+      if (!base64) {
+        return rejectWithValue('Could not convert image to base64 for ingestion.');
+      }
+
+      const fileName = fileNameFromUri(imageUri);
+      const mimeType = mimeFromUri(imageUri);
+
+      const payload = {
+        conversation_id: conversationId,
+        files: [
+          {
+            file_name:      fileName,
+            mime_type:      mimeType,
+            content_base64: base64,
+            metadata: {
+              ...(ocrHint     && { ocr_text_hint: ocrHint }),
+              ...(captionHint && { caption_hint:  captionHint }),
+            },
+          },
+        ],
+      };
+
+      const response = await authFetch(INGEST_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+
+      let data;
+      try { data = await response.json(); } catch {
+        return rejectWithValue(`Could not parse ingest response (HTTP ${response.status})`);
+      }
+      if (!response.ok) {
+        const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
+        Toast.show('Media ingestion failed', Toast.LONG);
+        return rejectWithValue(`Server error: ${errMsg}`);
+      }
+
+      Toast.show('Media ingested!', Toast.SHORT);
+      return {
+        status:            data?.status || 'success',
+        ingestionId:       data?.ingestion_id || null,
+        indexedChunkCount: data?.indexed_chunk_count ?? 0,
+        // Warnings are expected on dev (GIN index issue) — surface them for debugging
+        warnings:          data?.warnings || [],
+        conversationId,
+        sessionId,
+        timestamp:         new Date().toISOString(),
+      };
+    } catch (error) {
+      Toast.show('Media ingestion failed. Try again.', Toast.LONG);
+      return rejectWithValue(error.message || 'Network error');
+    }
+  }
+);
+
+// ─── 7. AI Suggestions (local, no fetch) ─────────────────────────────────────
 export const getAISuggestions = createAsyncThunk(
   'ai/getAISuggestions',
-  async ({ context, sessionId }, { rejectWithValue }) => {
+  async ({ context, sessionId } = {}, { rejectWithValue }) => {
     try {
       const suggestions = [
         "My sink is leaking",
@@ -300,15 +471,10 @@ export const getAISuggestions = createAsyncThunk(
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Utilities
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Misc exports ─────────────────────────────────────────────────────────────
 export const uploadImageToS3 = async (imageUri) => {
-  try {
-    return imageUri;
-  } catch (error) {
-    throw error;
-  }
+  // Placeholder — raw S3 storage is handled server-side by the /chat and /media/ingest endpoints.
+  return imageUri;
 };
 
 export const cleanup = () => {

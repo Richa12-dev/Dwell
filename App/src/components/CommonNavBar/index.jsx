@@ -78,7 +78,7 @@ const Navbar = () => {
              
         {/* <AppIcon name={icons.logo} size={wp('11')} style={styles.logo} /> */}
         <TouchableOpacity onPress={() => navigation.navigate('Notification')}>
-          <AppIcon name={icons.greenBell} size={wp('9')} style={styles.bell} />
+          <AppIcon name={icons.bellIcon} size={wp('9')} style={styles.bell} />
         </TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('ProfileHome')}>
           <AppIcon name={icons.avtarWhite} size={wp('9')} />

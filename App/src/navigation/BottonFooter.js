@@ -30,7 +30,11 @@ const Tab = createBottomTabNavigator();
 
 // Custom Tab Bar Overlay Component
 const CustomTabBarOverlay = ({state, descriptors, navigation}) => {
-  const TabBarArr = [
+    const currentRoute = state.routes[state.index]?.name;
+     if (currentRoute === 'AIAssistant') return null;
+    
+    
+    const TabBarArr = [
     {
       route: 'Home',
       name: 'Home',

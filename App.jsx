@@ -1,15 +1,17 @@
 import NetInfo from '@react-native-community/netinfo';
 
 import { NativeBaseProvider } from 'native-base';
-import React, { useEffect, useState } from 'react';
-import { Platform, StatusBar, StyleSheet, LogBox } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { AppState, Platform, StatusBar, StyleSheet, LogBox, Linking  } from 'react-native';
 import 'react-native-gesture-handler';
 import { heightPercentageToDP } from 'react-native-responsive-screen';
-import { Provider, useSelector } from 'react-redux';
+import { Provider, useSelector, useDispatch } from 'react-redux';
 import { PersistGate } from 'redux-persist/lib/integration/react';
 import { NavigationContainer } from '@react-navigation/native';
+
 // import { createStackNavigator } from '@react-navigation/stack';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { configureGoogleSignIn, refreshToken } from './App/src/Redux/Login/loginservices';
 
 // Import utilities and components
 import NetworkStatusBanner from './App/src/components/NetworkStatusBanner';
@@ -75,11 +77,183 @@ import PrivacyPolicy from './App/src/screens/PrivacyPolicy/PrivacyPolicy';
 import PropertyDocuments from './App/src/screens/PropertyDocuments/PropertyDocuments';
 
 import WebhookLogMonitor from './App/src/screens/Admin/WebhookLogMonitor';
+import SocialAuthScreen from './App/src/screens/Auth/SocialAuthScreen';
+import SocialAuthScreenContractor from './App/src/screens/Auth/SocialAuthScreenContractor';
 
+import SocialAuthScreenLandlord from './App/src/screens/Auth/SocialAuthScreenLandlord';
+
+import PushNotificationIOS from '@react-native-community/push-notification-ios';
+import { registerDeviceToken, removePushListeners } from './App/src/utils/registerDeviceToken';
+import { registerDeviceTokenToServer } from './App/src/Redux/Login/loginSlice';
+import { resolveInviteToken } from './App/src/Redux/Invite/inviteServices';
+import DeviceInfo from 'react-native-device-info';
 
 const Stack = createNativeStackNavigator();
 
+configureGoogleSignIn();
 
+// ─── Background token refresh hook ────────────────────────────────────────────
+const useTokenRefresh = () => {
+  const dispatch = useDispatch();
+  const { isLogged } = useSelector(loginDataSelectors.getLoginStatus);
+  const refreshTokenValue = useSelector(state => state.loginData?.refreshToken);
+  const intervalRef = useRef(null);
+  
+  
+ 
+  useEffect(() => {
+    if (!isLogged || !refreshTokenValue) return;
+ 
+    // Refresh every 10 minutes (if access token expires at 15)
+    intervalRef.current = setInterval(() => {
+      dispatch(refreshToken({ refreshToken: refreshTokenValue }));
+    }, 10 * 60 * 1000);
+ 
+    // Also refresh when app comes back to foreground
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && refreshTokenValue) {
+        dispatch(refreshToken({ refreshToken: refreshTokenValue }));
+      }
+    });
+ 
+    return () => {
+      clearInterval(intervalRef.current);
+      sub.remove();
+    };
+  }, [isLogged, refreshTokenValue]);
+};
+ 
+ 
+ 
+const TokenRefreshManager = ({ children }) => {
+  useTokenRefresh();
+ 
+  const dispatch = useDispatch();
+  const { isLogged } = useSelector(loginDataSelectors.getLoginStatus);
+  const userData    = useSelector((state) => state.loginData?.userData);
+ 
+  // ✅ Get auth token from Redux for backend registration call
+  const accessToken = useSelector((state) => state.loginData?.accessToken);
+ 
+  useEffect(() => {
+    console.log('🔍 isLogged in TokenRefreshManager:', isLogged);
+    if (!isLogged) return;
+ 
+    const userId =
+      userData?.tenantId ||
+      userData?.landlordId ||
+      userData?.contractorId ||
+      null;
+ 
+    // ── ✅ Pure APNs token registration ─────────────────────────────────────
+    // registerDeviceToken() now uses PushNotificationIOS (not Firebase)
+    // Token will be 64-char hex string e.g: a1b2c3d4e5f6...
+    registerDeviceToken(accessToken)
+      .then((result) => {
+        if (!result) return;
+ 
+        const { token ,  apnsEnv } = result;
+        console.log('✅ APNs Device Token:', token);
+ 
+        if (userId) {
+          dispatch(registerDeviceTokenToServer({
+            deviceToken: token,
+            userId,
+            platform:    Platform.OS,        // 'ios'
+          apnsEnv:      apnsEnv,                        // 'sandbox' | 'production'
+        deviceModel:  DeviceInfo.getModel(),          // 'iPhone 15 Pro', 'iPad Air' etc
+        appVersion:   DeviceInfo.getVersion(), 
+          }));
+        } else {
+          console.warn('⚠️ No userId yet — APNs token NOT registered');
+        }
+      })
+      .catch((err) => {
+        console.error('❌ APNs token registration failed:', err.message);
+      });
+ 
+    
+    });
+ 
+    // ── ✅ Handle notification tap when app is in background ──────────────
+    // Replaces: messaging().onNotificationOpenedApp(...)
+    PushNotificationIOS.addEventListener('localNotification', (notification) => {
+      const data = notification.getData();
+      console.log('👆 Notification tapped (background):', data);
+      if (data?.screen) {
+        NavigationRef.current?.navigate(data.screen, { id: data.entityId });
+      }
+    });
+ 
+    // ── ✅ Handle notification tap when app was CLOSED (cold start) ───────
+    // Replaces: messaging().getInitialNotification()
+    PushNotificationIOS.getInitialNotification().then((notification) => {
+      if (notification) {
+        const data = notification.getData();
+        console.log('🚀 Cold start from notification:', data);
+        if (data?.screen) {
+          NavigationRef.current?.navigate(data.screen, { id: data.entityId });
+        }
+      }
+ 
+ 
+    // ── Cleanup on logout / unmount ────────────────────────────────────────
+   return () => {
+      cleanupTapHandler();
+      removePushListeners();
+    };
+  }, [isLogged]);
+ 
+  return <>{children}</>;
+};
+
+const useInviteDeepLink = () => {
+  const dispatch = useDispatch();
+ 
+  const handleUrl = async (url) => {
+    if (!url) return;
+ 
+    // Supports both:
+    //   dwellproperties://invite?token=XXXX
+    //   https://app.dwellproperties.ai/invite?token=XXXX
+    //   https://app.dwellproperties.ai/invite/XXXX
+    const queryMatch = url.match(/[?&]token=([^&]+)/);
+    const pathMatch  = url.match(/\/invite\/([^/?#]+)/);
+    const token      = queryMatch?.[1] || pathMatch?.[1];
+ 
+    if (!token) return;
+    console.log('🔗 Invite deep link token:', token);
+ 
+    // resolveInviteToken → GET /auth/invite/:token
+    // → stores { inviteId, phone, role } in state.invites.resolvedInvite
+    const result = await dispatch(resolveInviteToken(token));
+ 
+    if (resolveInviteToken.fulfilled.match(result)) {
+      const { phone, role } = result.payload || {};
+      // Navigate to Register with prefill params so the form auto-fills
+      NavigationRef.current?.navigate('Register', {
+        inviteToken:   token,
+        prefillPhone:  phone  || '',
+        prefillRole:   role   || 'tenant',
+      });
+    }
+  };
+ 
+  useEffect(() => {
+    // Cold start — app opened directly from the SMS link
+    Linking.getInitialURL().then((url) => { if (url) handleUrl(url); });
+ 
+    // Warm start — app already open when link is tapped
+    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    return () => sub.remove();
+  }, []);
+};
+ 
+// Thin wrapper so useInviteDeepLink has store + navigation access
+const InviteDeepLinkManager = ({ children }) => {
+  useInviteDeepLink();
+  return <>{children}</>;
+};
 
 const App = () => {
   const [netInfo, setNetInfo] = useState('');
@@ -112,6 +286,7 @@ const App = () => {
     <NativeBaseProvider>
       <Provider store={store}>
         <PersistGate loading={null} persistor={persistor}>
+         <TokenRefreshManager>
           <StatusBar
             backgroundColor="rgba(238, 81, 63, 1)"
             barStyle={'light-content'}
@@ -135,6 +310,10 @@ const App = () => {
               <Stack.Screen name="Register" component={Register} />
               <Stack.Screen name="ForgotPassword" component={ForgotPassword} />
               <Stack.Screen name="ResetPassword" component={ResetPassword} />
+              
+               <Stack.Screen name="SocialAuth" component={SocialAuthScreen} />
+                <Stack.Screen name="SocialAuthContractor" component={SocialAuthScreenContractor} />
+                <Stack.Screen name="SocialAuthLandlord" component={SocialAuthScreenLandlord} />
               
                <Stack.Screen name="AdminLogin" component={AdminLogin} />
                 {/* ── Admin Dashboard ── */}
@@ -213,6 +392,7 @@ const App = () => {
            
             </Stack.Navigator>
           </NavigationContainer>
+           </TokenRefreshManager>
         </PersistGate>
       </Provider>
     </NativeBaseProvider>

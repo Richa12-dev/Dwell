@@ -71,16 +71,20 @@ const LandlordSupportCard = ({ ticket, onPress }) => {
 
   // Extract data with fallbacks
   const ticketId = ticket.ticket_id || ticket.id || 'N/A';
+  
   const title = ticket.title || ticket.subject || 'Untitled';
   const description = ticket.description || '';
   const category = ticket.category || ticket.queryType || 'General';
   const priority = ticket.priority || 'Medium';
   const status = ticket.displayStatus || ticket.status || 'Pending';
   const createdAt = ticket.created_at || new Date().toISOString();
-  const tenantName = ticket?.contractor_job_snapshot?.tenant?.name
-      || ticket?.tenant?.name
-      || ticket?.tenant_name
-      || 'Unknown Tenant';
+    const tenant =
+      ticket?.contractor_job_snapshot?.tenant || ticket?.tenant;
+
+    const tenantName =
+      tenant?.firstName || tenant?.lastName
+        ? `${tenant?.firstName || ''} ${tenant?.lastName || ''}`.trim()
+        : ticket?.tenant_name || 'Unknown Tenant';
       
   const responseCount = ticket.response_count || 0;
   const tenantAvatar = ticket.tenant_avatar || null;
@@ -119,7 +123,9 @@ const LandlordSupportCard = ({ ticket, onPress }) => {
               <Text style={styles.tenantName}>{tenantName}</Text>
             </View>
           
-          </View>
+          
+          
+     
           
 
           {/* Right: Priority + Status Badges */}
@@ -136,7 +142,8 @@ const LandlordSupportCard = ({ ticket, onPress }) => {
             </View>
           </View>
         </View>
-    
+          
+    </View>
 
         {/* Level + Category */}
         <View style={styles.metaRow}>
@@ -215,14 +222,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   avatar: {
-    width: wp(12),
-    height: wp(12),
-    borderRadius: wp(6),
+    width: wp(8),
+    height: wp(8),
+    borderRadius: wp(4),
     marginRight: wp(3),
   },
   avatarPlaceholder: {
-    width: wp(12),
-    height: wp(12),
+    width: wp(8),
+    height: wp(8),
     borderRadius: wp(6),
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
@@ -233,14 +240,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tenantName: {
-    fontSize: hp(2),
+    fontSize: hp(1.6),
     fontWeight: '700',
     fontFamily: getFontFamily('bold'),
     color: '#111827',
     marginBottom: hp(0.3),
   },
     initialsText:{
-        fontSize: hp(2.5),
+        fontSize: hp(2),
         fontWeight: '600',
         fontFamily: getFontFamily('regular'),
         color: '#FFFFFF',
@@ -291,7 +298,7 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   title: {
-    fontSize: hp(2),
+    fontSize: hp(1.6),
     fontWeight: '700',
     fontFamily: getFontFamily('bold'),
     color: '#111827',
@@ -299,7 +306,7 @@ const styles = StyleSheet.create({
     lineHeight: hp(2.6),
   },
   description: {
-    fontSize: hp(1.7),
+    fontSize: hp(1.4),
     fontFamily: getFontFamily('regular'),
     color: '#6B7280',
     lineHeight: hp(2.2),

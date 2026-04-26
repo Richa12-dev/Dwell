@@ -19,104 +19,182 @@ import { useSelector, useDispatch } from "react-redux";
 import Container from "../../components/Container/Container";
 import { getMaintenanceRequests } from "../../Redux/Maintenance/services";
 import { maintenanceSelectors } from "../../Redux/Maintenance/maintenanceSlice";
-import { getTenantProperties } from '../../Redux/Properties/services';
+// GET /api/property-tenants/my-properties
+import { getMyProperties } from "../../Redux/Tenants/services";
 import { AppIcon } from "../../components/AppIcon";
 import { icons } from "../../Assets";
-
 
 const Support = ({ navigation }) => {
   const dispatch = useDispatch();
   const [showAll, setShowAll] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [propertyInfo, setPropertyInfo] = useState(null);
-  const [loadingProperty, setLoadingProperty] = useState(true);
-  
+
+  // ✅ NEW: holds the result of /api/property-tenants/my-properties
+  const [myProperties, setMyProperties] = useState([]);
+  const [myPropertiesLoading, setMyPropertiesLoading] = useState(false);
+
   // Filter states
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');
 
   const loginData = useSelector((state) => state.loginData || {});
-  const token = loginData?.idToken;
-  const tenant_sub = loginData?.userData?.tenantId;
-  const accessToken = loginData?.accessToken;
+  const token = loginData?.accessToken || loginData?.token || null;
+
+  // tenantId from login state
+  const tenant_sub = loginData?.tenantId || loginData?.userData?.tenantId;
 
   const {
     requests,
     loading: maintenanceLoading,
-    totalRequests,
-    openRequests,
-    closedRequests
   } = useSelector(maintenanceSelectors.getMaintenanceData);
 
-  useEffect(() => {
-    const fetchPropertyInfo = async () => {
-      if (!accessToken || !tenant_sub) {
-        console.error(' Missing tenant_sub or token');
-        setLoadingProperty(false);
-        return;
-      }
-
-      try {
-        setLoadingProperty(true);
-    
-        const result = await dispatch(getTenantProperties({ tenantId: tenant_sub, token: accessToken })).unwrap();
-        
-
-        if (result && Array.isArray(result) && result.length > 0) {
-          const assignedProperty = result[0];
-          
-          const extractedPropertyInfo = {
-            property_id: assignedProperty.propertyId || assignedProperty.property_id,
-            property_name: assignedProperty.name || assignedProperty.property_name || 'My Property',
-            landlord_id: assignedProperty.landlord_id || assignedProperty.landlordId,
-            tenant_id: tenant_sub,
-            street: assignedProperty.street || '',
-            city: assignedProperty.city || '',
-            state: assignedProperty.state || '',
-            zipcode: assignedProperty.zipcode || '',
-          };
-          
-          if (!extractedPropertyInfo.property_id || !extractedPropertyInfo.landlord_id) {
-            setPropertyInfo(null);
-            return;
-          }
-
-          setPropertyInfo(extractedPropertyInfo);
-        } else {
-          console.warn('No properties assigned to this tenant');
-          setPropertyInfo(null);
-        }
-      } catch (error) {
-        console.error('Failed to fetch tenant properties:', error);
-        Toast.show('Failed to load property information');
-        setPropertyInfo(null);
-      } finally {
-        setLoadingProperty(false);
-      }
-    };
-
-    fetchPropertyInfo();
-  }, [dispatch, accessToken, tenant_sub]);
-
+  // ─────────────────────────────────────────────────────────────
+  // Fetch maintenance requests on mount / when auth changes
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (token && tenant_sub) {
       dispatch(
         getMaintenanceRequests({
-          tenant_id: tenant_sub,
-          token: token,
+          tenantId: tenant_sub,
+          token,
         })
       );
     }
   }, [dispatch, token, tenant_sub]);
 
-  const getDisplayStatus = (item) => {
-    console.log('🔍 Checking status for ticket:', item.ticket_id, {
-      main_status: item.status,
-      assignment_state: item.contractor_assignment?.state,
-      completed_at: item.completed_at,
-      completion_notes: item.completion_notes,
-    });
+  // ─────────────────────────────────────────────────────────────
+  // ✅ NEW: Fetch the tenant's assigned property/unit.
+  // This lets us resolve propertyInfo for brand-new tenants who
+  // haven't raised a single ticket yet.
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
 
+    (async () => {
+      try {
+        setMyPropertiesLoading(true);
+        const result = await dispatch(getMyProperties({ token })).unwrap();
+        if (!cancelled) {
+          setMyProperties(Array.isArray(result) ? result : []);
+        }
+      } catch (err) {
+        console.warn('⚠️ getMyProperties failed:', err);
+        if (!cancelled) setMyProperties([]);
+      } finally {
+        if (!cancelled) setMyPropertiesLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [dispatch, token]);
+
+  // ─────────────────────────────────────────────────────────────
+  // Resolve propertyInfo.
+  //
+  // Priority order:
+  //   1. /api/property-tenants/my-properties  (authoritative, works
+  //      from day 1 — no ticket required)
+  //   2. Nested `property` object on existing tickets (fallback)
+  //
+  // Shape returned by my-properties (confirmed from console logs):
+  //   {
+  //     id, propertyId, unitId, tenantId, leaseStatus, status,
+  //     property: {
+  //       id, name, streetAddress, city, state, zipCode,
+  //       propertyType, landlordId, ...
+  //     },
+  //     tenant: { ... }
+  //   }
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let resolved = null;
+
+    // ── Source A: my-properties (primary) ─────────────────────
+    if (myProperties.length > 0) {
+      const mp   = myProperties[0];          // first active lease
+      const prop = mp.property || {};
+      const unit = mp.unit     || {};
+
+
+      resolved = {
+        property_id:
+          mp.propertyId || prop.id || prop.propertyId || null,
+        property_name: prop.name || 'My Property',
+        landlord_id:
+          prop.landlordId || prop.landlord_id ||
+          mp.landlordId   || mp.landlord_id   || null,
+        tenant_id:     tenant_sub,
+        unit_id:       mp.unitId || unit.id || null,
+        unit_number:   unit.unitNumber || unit.number || null,
+        street:        prop.streetAddress || prop.street || '',
+        city:          prop.city  || '',
+        state:         prop.state || '',
+        zipcode:       prop.zipCode || prop.zipcode || '',
+        property_type: prop.propertyType || '',
+      };
+    }
+
+    // ── Source B: tickets (fallback when my-properties is empty) ──
+    if (!resolved?.property_id && Array.isArray(requests) && requests.length > 0) {
+      for (const ticket of requests) {
+        const prop = ticket.property || {};
+        const unit = ticket.unit     || {};
+
+        const landlordId =
+          prop.landlordId  ||
+          prop.landlord_id ||
+          ticket.landlordId ||
+          ticket.landlord_id ||
+          null;
+
+        const propertyId =
+          prop.id          ||
+          prop.propertyId  ||
+          ticket.propertyId ||
+          ticket.property_id ||
+          null;
+
+        if (propertyId) {
+          console.log('🔍 Resolving propertyInfo from ticket fallback:', {
+            ticket_id: ticket.ticket_id || ticket.id,
+            propertyId,
+          });
+
+          resolved = {
+            property_id:   propertyId,
+            property_name: prop.name || 'My Property',
+            landlord_id:   landlordId,
+            tenant_id:     tenant_sub,
+            unit_id:       unit.id || null,
+            unit_number:   unit.unitNumber || null,
+            street:        prop.streetAddress || prop.street || '',
+            city:          prop.city          || '',
+            state:         prop.state         || '',
+            zipcode:       prop.zipCode       || prop.zipcode || '',
+            property_type: prop.propertyType  || '',
+          };
+          break;
+        }
+      }
+    }
+
+    if (resolved) {
+      console.log('✅ propertyInfo resolved:', JSON.stringify(resolved));
+      setPropertyInfo(resolved);
+    } else {
+      console.warn('⚠️ Could not resolve propertyInfo from any source.');
+      console.warn('   myProperties:', myProperties);
+      console.warn('   requests[0]:', requests?.[0]);
+      setPropertyInfo(null);
+    }
+  }, [myProperties, requests, tenant_sub]);
+
+  // ─────────────────────────────────────────────────────────────
+  // Status helpers
+  // ─────────────────────────────────────────────────────────────
+  const getDisplayStatus = (item) => {
     const assignmentState = item?.contractor_assignment?.state?.toUpperCase();
     const jobStatus = item?.status?.toUpperCase();
 
@@ -125,202 +203,158 @@ const Support = ({ navigation }) => {
       jobStatus === 'COMPLETED' ||
       jobStatus === 'CLOSED' ||
       jobStatus === 'RESOLVED'
-    ) {
-      return 'Completed';
-    }
+    ) return 'Completed';
 
-    if (item.completed_at || item.completion_notes) {
-      return 'Completed';
-    }
+    if (item.completed_at || item.completion_notes) return 'Completed';
 
-    if (
-      assignmentState === 'ACCEPTED' ||
-      assignmentState === 'IN_PROGRESS'
-    ) {
-      return 'In Progress';
-    }
+    if (assignmentState === 'ACCEPTED' || assignmentState === 'IN_PROGRESS') return 'In Progress';
 
     if (
       assignmentState === 'OFFERED' ||
       assignmentState === 'PENDING' ||
       jobStatus === 'OPEN' ||
       jobStatus === 'NEW'
-    ) {
-      return 'Open';
-    }
+    ) return 'Open';
+
     return 'Pending';
   };
 
-  const statusCounts = useMemo(() => {
-    const counts = requests.reduce((acc, req) => {
-      const displayStatus = getDisplayStatus(req);
-      const status = displayStatus.toLowerCase();
-      acc[status] = (acc[status] || 0) + 1;
+  const getStatusStyle = (status) => {
+    const s = status?.toLowerCase() || '';
+    if (s === 'completed' || s === 'closed' || s === 'resolved')
+      return { backgroundColor: '#DBEAFE', color: '#2563EB' };
+    if (s === 'in progress' || s === 'inprogress')
+      return { backgroundColor: '#D1FAE5', color: '#059669' };
+    if (s === 'open' || s === 'new')
+      return { backgroundColor: '#FEF3C7', color: '#D97706' };
+    return { backgroundColor: '#F3F4F6', color: '#6B7280' };
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // Memoised filter / sort
+  // ─────────────────────────────────────────────────────────────
+  const statusCounts = useMemo(() =>
+    requests.reduce((acc, req) => {
+      const s = getDisplayStatus(req).toLowerCase();
+      acc[s] = (acc[s] || 0) + 1;
       return acc;
-    }, {});
-    return counts;
-  }, [requests]);
+    }, {}),
+  [requests]);
 
-  const categoryCounts = useMemo(() => {
-    return requests.reduce((acc, req) => {
-      const category = (req.category || 'other').toLowerCase();
-      acc[category] = (acc[category] || 0) + 1;
+  const categoryCounts = useMemo(() =>
+    requests.reduce((acc, req) => {
+      const c = (req.category || 'other').toLowerCase();
+      acc[c] = (acc[c] || 0) + 1;
       return acc;
-    }, {});
-  }, [requests]);
+    }, {}),
+  [requests]);
 
-  const filteredRequests = useMemo(() => {
-    return requests.filter(req => {
-      const displayStatus = getDisplayStatus(req).toLowerCase();
-      const category = (req.category || 'other').toLowerCase();
-
-      const statusMatch = selectedStatus === 'all' || displayStatus === selectedStatus;
-      const categoryMatch = selectedCategory === 'all' || category === selectedCategory;
-
+  const filteredRequests = useMemo(() =>
+    requests.filter(req => {
+      const statusMatch =
+        selectedStatus === 'all' ||
+        getDisplayStatus(req).toLowerCase() === selectedStatus;
+      const categoryMatch =
+        selectedCategory === 'all' ||
+        (req.category || 'other').toLowerCase() === selectedCategory;
       return statusMatch && categoryMatch;
-    });
-  }, [requests, selectedStatus, selectedCategory]);
+    }),
+  [requests, selectedStatus, selectedCategory]);
 
-  const sortedRequests = useMemo(() => {
-    return [...filteredRequests].sort((a, b) => {
-      const titleA = (a.title || 'Untitled Request').toLowerCase();
-      const titleB = (b.title || 'Untitled Request').toLowerCase();
-      return titleA.localeCompare(titleB);
-    });
-  }, [filteredRequests]);
+  const sortedRequests = useMemo(() =>
+    [...filteredRequests].sort((a, b) =>
+      (a.title || 'Untitled Request')
+        .toLowerCase()
+        .localeCompare((b.title || 'Untitled Request').toLowerCase())
+    ),
+  [filteredRequests]);
 
   const visibleRequests = showAll ? sortedRequests : sortedRequests.slice(0, 3);
 
-  const getStatusStyle = (status) => {
-    const statusLower = status?.toLowerCase() || '';
-    
-    if (statusLower === 'completed' || statusLower === 'closed' || statusLower === 'resolved') {
-      return { backgroundColor: "#DBEAFE", color: "#2563EB" };
-    } else if (statusLower === 'in progress' || statusLower === 'inprogress') {
-      return { backgroundColor: "#D1FAE5", color: "#059669" };
-    } else if (statusLower === 'open' || statusLower === 'new') {
-      return { backgroundColor: "#FEF3C7", color: "#D97706" };
-    } else if (statusLower === 'pending') {
-      return { backgroundColor: "#F3F4F6", color: "#6B7280" };
-    }
-    return { backgroundColor: "#F3F4F6", color: "#6B7280" };
-  };
-
+  // ─────────────────────────────────────────────────────────────
+  // Date helpers
+  // ─────────────────────────────────────────────────────────────
   const formatDate = (dateString) => {
-    if (!dateString) return "N/A";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-GB");
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-GB');
   };
-  
-  const formatScheduledWindow = (startUtc, endUtc) => {
-    if (!startUtc || !endUtc) return "Scheduled";
 
+  const formatScheduledWindow = (startUtc, endUtc) => {
+    if (!startUtc || !endUtc) return 'Scheduled';
     const start = new Date(startUtc);
-    const end = new Date(endUtc);
-    const now = new Date();
+    const end   = new Date(endUtc);
+    const now   = new Date();
     const today = new Date(now.setHours(0, 0, 0, 0));
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
-    let dayLabel = start.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-    });
+    let dayLabel = start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+    if (start >= today && start < tomorrow) dayLabel = 'Today';
+    else if (start >= tomorrow && start < new Date(tomorrow.getTime() + 86400000))
+      dayLabel = 'Tomorrow';
 
-    if (start >= today && start < tomorrow) {
-      dayLabel = "Today";
-    } else if (
-      start >= tomorrow &&
-      start < new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000)
-    ) {
-      dayLabel = "Tomorrow";
-    }
-
-    const formatTime = (date) =>
-      date.toLocaleTimeString("en-GB", {
-        hour: "numeric",
-        hour12: true,
-      });
-
-    return `Scheduled ${dayLabel} ${formatTime(start)}–${formatTime(end)}`;
+    const fmt = (d) => d.toLocaleTimeString('en-GB', { hour: 'numeric', hour12: true });
+    return `Scheduled ${dayLabel} ${fmt(start)}–${fmt(end)}`;
   };
 
+  // ─────────────────────────────────────────────────────────────
+  // Modal handlers
+  // ─────────────────────────────────────────────────────────────
   const handleCloseModal = () => {
     setShowModal(false);
     if (token && tenant_sub) {
-      dispatch(getMaintenanceRequests({
-        tenant_id: tenant_sub,
-        token: token,
-      }));
+      dispatch(getMaintenanceRequests({ tenantId: tenant_sub, token }));
     }
   };
 
   const handleOpenModal = () => {
-    if (loadingProperty) {
-      Toast.show("Loading property information...");
+    // Wait for either source to finish loading
+    if (maintenanceLoading || myPropertiesLoading) {
+      Toast.show('Loading property information...');
       return;
     }
 
-    if (!propertyInfo) {
-      Toast.show("No property assigned. Please contact your landlord.");
+    // Must have a resolved property before opening the form
+    if (!propertyInfo?.property_id) {
+      Toast.show('No property assigned. Please contact your landlord.');
+      console.warn('propertyInfo missing. myProperties:', myProperties,
+                   '| requests[0]:', requests?.[0]);
       return;
     }
-    
-    if (!propertyInfo.property_id) {
-      Toast.show("Property ID missing. Please contact support.");
-      console.error(' Property Info:', propertyInfo);
-      return;
-    }
-    
-    if (!propertyInfo.landlord_id) {
-      Toast.show("Landlord information missing. Please contact support.");
-      console.error(' Property Info:', propertyInfo);
-      return;
-    }
-    
+
     setShowModal(true);
   };
 
+  // ─────────────────────────────────────────────────────────────
+  // Render ticket card
+  // ─────────────────────────────────────────────────────────────
   const renderRequest = ({ item }) => {
-    const ticketId = item.ticket_id || item.request_id || item.id || 'N/A';
-    const title = item.title || 'Untitled Request';
-    const description = item.description || 'No description provided';
-    const location = item.location || 'Location not specified';
-    const category = item.category || '';
-    const priority = item.priority || 'Medium';
+    const title         = item.title       || 'Untitled Request';
+    const description   = item.description || 'No description provided';
+    const location      = item.location    || 'Location not specified';
+    const category      = item.category    || '';
+    const priority      = item.priority    || 'Medium';
     const displayStatus = getDisplayStatus(item);
-    const createdAt = item.created_at || new Date().toISOString();
+    const createdAt     = item.created_at  || new Date().toISOString();
     const preferredWindow = item.preferred_window || null;
 
     return (
       <TouchableOpacity
         activeOpacity={0.9}
-        onPress={() => {
-          navigation.navigate("QueryDetails", { data: item });
-        }}
+        onPress={() => navigation.navigate('QueryDetails', { data: item })}
       >
         <View style={styles.glassContainer}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>{title}</Text>
-            <View
-              style={[
-                styles.statusBadge,
-                { backgroundColor: getStatusStyle(displayStatus).backgroundColor },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.statusText,
-                  { color: getStatusStyle(displayStatus).color },
-                ]}
-              >
+            <View style={[styles.statusBadge, { backgroundColor: getStatusStyle(displayStatus).backgroundColor }]}>
+              <Text style={[styles.statusText, { color: getStatusStyle(displayStatus).color }]}>
                 {displayStatus}
               </Text>
             </View>
           </View>
 
           <Text style={styles.cardCategory}>
-            {location}
+          
             {category ? ` • ${category}` : ''}
             {priority ? ` • ${priority} Priority` : ''}
           </Text>
@@ -331,27 +365,14 @@ const Support = ({ navigation }) => {
 
           <View style={styles.cardFooter}>
             <View style={styles.footerItem}>
-              <AppIcon
-                name={icons.calender}
-                height={hp(2)}
-                width={hp(2)}
-                color={Colors.inputText}
-              />
+              <AppIcon name={icons.calender} height={hp(2)} width={hp(2)} color={Colors.inputText} />
               <Text style={styles.footerText}>{formatDate(createdAt)}</Text>
             </View>
             {preferredWindow?.start_utc && (
               <View style={styles.footerItem}>
-                <AppIcon
-                  name={icons.calender}
-                  height={hp(2)}
-                  width={hp(2)}
-                  color={Colors.inputText}
-                />
+                <AppIcon name={icons.calender} height={hp(2)} width={hp(2)} color={Colors.inputText} />
                 <Text style={styles.footerText}>
-                  {formatScheduledWindow(
-                    preferredWindow.start_utc,
-                    preferredWindow.end_utc
-                  )}
+                  {formatScheduledWindow(preferredWindow.start_utc, preferredWindow.end_utc)}
                 </Text>
               </View>
             )}
@@ -361,8 +382,9 @@ const Support = ({ navigation }) => {
     );
   };
 
-  const loading = maintenanceLoading || loadingProperty;
-
+  // ─────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────
   return (
     <Container scroll={false}>
       <View style={styles.headerContainer}>
@@ -372,13 +394,8 @@ const Support = ({ navigation }) => {
             activeOpacity={0.7}
             hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
           >
-            <AppIcon
-              name={icons.arrowBack}
-              height={hp(2.5)}
-              width={hp(2.5)}
-            />
+            <AppIcon name={icons.arrowBack} height={hp(2.5)} width={hp(2.5)} />
           </TouchableOpacity>
-
           <Text style={styles.pageTitle}>
             Maintenance Requests ({filteredRequests.length})
           </Text>
@@ -397,7 +414,7 @@ const Support = ({ navigation }) => {
         />
       )}
 
-      {loading && requests.length === 0 ? (
+      {maintenanceLoading && requests.length === 0 ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.primary} />
           <Text style={styles.loadingText}>Loading...</Text>
@@ -426,25 +443,19 @@ const Support = ({ navigation }) => {
         <FlatList
           data={visibleRequests}
           renderItem={renderRequest}
-          keyExtractor={(item, index) => (item.ticket_id || item.request_id || item.id || index).toString()}
+          keyExtractor={(item, index) =>
+            (item.ticket_id || item.request_id || item.id || index).toString()
+          }
           showsVerticalScrollIndicator={false}
           ListFooterComponent={
             <>
               {!showAll && sortedRequests.length > 3 && (
-                <TouchableOpacity
-                  style={styles.showMoreButton}
-                  onPress={() => setShowAll(true)}
-                >
-                  <Text style={styles.showMoreText}>
-                    Show More ({sortedRequests.length - 3})
-                  </Text>
+                <TouchableOpacity style={styles.showMoreButton} onPress={() => setShowAll(true)}>
+                  <Text style={styles.showMoreText}>Show More ({sortedRequests.length - 3})</Text>
                 </TouchableOpacity>
               )}
               {showAll && sortedRequests.length > 3 && (
-                <TouchableOpacity
-                  style={styles.showMoreButton}
-                  onPress={() => setShowAll(false)}
-                >
+                <TouchableOpacity style={styles.showMoreButton} onPress={() => setShowAll(false)}>
                   <Text style={styles.showMoreText}>Show Less</Text>
                 </TouchableOpacity>
               )}
@@ -453,10 +464,7 @@ const Support = ({ navigation }) => {
         />
       )}
 
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={handleOpenModal}
-      >
+      <TouchableOpacity style={styles.fab} onPress={handleOpenModal}>
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
 
@@ -464,7 +472,7 @@ const Support = ({ navigation }) => {
         isVisible={showModal}
         onBackdropPress={handleCloseModal}
         onSwipeComplete={handleCloseModal}
-        swipeDirection={["down"]}
+        swipeDirection={['down']}
         style={styles.modalStyle}
         backdropOpacity={0.5}
         animationIn="slideInUp"
@@ -491,14 +499,14 @@ const styles = StyleSheet.create({
     paddingVertical: hp(2),
   },
   headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   pageTitle: {
     fontSize: 20,
     fontFamily: Fonts.popbold,
     color: Colors.black,
-     fontWeight: "bold",
+    fontWeight: 'bold',
   },
   glassContainer: {
     borderRadius: 20,
@@ -515,19 +523,17 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 8,
   },
   cardTitle: {
     fontFamily: Fonts.popsemiBold,
     fontSize: hp(1.8),
     lineHeight: hp(3),
-    letterSpacing: 0,
     color: Colors.black,
     width: wp(62),
     height: hp(3),
-    opacity: 1,
   },
   statusBadge: {
     paddingHorizontal: 10,
@@ -551,17 +557,17 @@ const styles = StyleSheet.create({
     color: Colors.clr66,
     marginBottom: 12,
   },
-  cardFooter: { flexDirection: "row", gap: 16 },
-  footerItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  cardFooter: { flexDirection: 'row', gap: 16 },
+  footerItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   footerText: {
     fontSize: 11,
     fontFamily: Fonts.regular,
     color: Colors.inputText,
   },
   showMoreButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
     marginTop: 8,
     marginBottom: 16,
     gap: 8,
@@ -573,8 +579,8 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingVertical: 40,
   },
   loadingText: {
@@ -585,14 +591,14 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingVertical: 60,
   },
   emptyFilterContainer: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingVertical: 40,
   },
   emptyText: {
@@ -620,15 +626,15 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.semiBold,
   },
   fab: {
-    position: "absolute",
+    position: 'absolute',
     bottom: hp(11),
     right: wp(5),
     width: 56,
     height: 56,
     borderRadius: 28,
     backgroundColor: Colors.black,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     elevation: 6,
     shadowColor: Colors.black,
     shadowOffset: { width: 0, height: 4 },
@@ -642,7 +648,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.light,
   },
   modalStyle: {
-    justifyContent: "flex-end",
+    justifyContent: 'flex-end',
     margin: 0,
   },
 });

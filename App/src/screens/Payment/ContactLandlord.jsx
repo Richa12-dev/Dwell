@@ -17,72 +17,36 @@ import {
 } from "react-native-responsive-screen";
 import { Colors } from "../../Theme";
 import { useNavigation } from "@react-navigation/native";
-import { getTenantProperties, getProperty } from "../../Redux/Properties/services";
-import { propertiesSelectors } from "../../Redux/Properties/propertiesSlice";
+import { getLandlordContact } from "../../Redux/Tenants/services";
+import { tenantsSelectors } from "../../Redux/Tenants/tenantsSlice";
 import Container from "../../components/Container/Container";
-import { getFontFamily } from '../../utils';
-
-// ─────────────────────────────────────────────────────────────
-// Helper: extract a plain string property_id safely
-// ─────────────────────────────────────────────────────────────
-const extractPropertyId = (tenantProperties, currentProperty) => {
-  const fromTenant = tenantProperties?.[0]?.property_id;
-  const fromCurrent = currentProperty?.property_id;
-
-  // Guard: must be a non-empty string, never an object
-  if (typeof fromTenant === "string" && fromTenant.trim()) return fromTenant.trim();
-  if (typeof fromCurrent === "string" && fromCurrent.trim()) return fromCurrent.trim();
-  return null;
-};
 
 const ContactLandlord = () => {
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { tenantProperties, currentProperty, loading } = useSelector(
-    propertiesSelectors.getPropertiesData
-  );
-  const loginData = useSelector((state) => state.loginData || {});
-  const token = loginData?.accessToken;
-  const tenant_sub = loginData?.userData?.tenantId;
+  // ─────────────────────────────────────────────────────────────
+  // Redux state — single source of truth from tenantsSlice
+  // ─────────────────────────────────────────────────────────────
+  const landlordContact = useSelector(tenantsSelectors.getLandlordContact);
+  const loading = useSelector(tenantsSelectors.isLoadingLandlordContact);
 
   // ─────────────────────────────────────────────────────────────
-  // Single combined fetch — fixes the waterfall double-call bug
-  // Step 1: getTenantProperties → get property_id string
-  // Step 2: getProperty(propertyId) → get landlord_contact
-  // Both happen in sequence inside this one function, triggered
-  // only ONCE on mount (or on manual refresh).
+  // Fetch landlord contact — single API call, no waterfall
   // ─────────────────────────────────────────────────────────────
   const fetchLandlordInfo = useCallback(
     async (isRefresh = false) => {
-      if (!token || !tenant_sub) return;
-
       if (isRefresh) setRefreshing(true);
-
       try {
-        // Step 1 — get tenant's properties
-        const result = await dispatch(
-          getTenantProperties({ tenantId: tenant_sub, token })
-        ).unwrap();
-
-        // Step 2 — extract property_id safely as a plain string
-        const propertyId =
-          typeof result?.[0]?.property_id === "string"
-            ? result[0].property_id.trim()
-            : null;
-
-        if (!propertyId) return;
-
-        // Step 3 — fetch full property (includes landlord_contact)
-        await dispatch(getProperty(propertyId)).unwrap();
-      } catch (err) {
-        // Errors are already handled + toasted in the thunks
+        await dispatch(getLandlordContact()).unwrap();
+      } catch {
+        // Errors are already handled + toasted in the thunk
       } finally {
         if (isRefresh) setRefreshing(false);
       }
     },
-    [dispatch, token, tenant_sub]
+    [dispatch]
   );
 
   // Run once on mount
@@ -91,28 +55,17 @@ const ContactLandlord = () => {
   }, [fetchLandlordInfo]);
 
   // ─────────────────────────────────────────────────────────────
-  // Extract landlord info — try landlord_contact first (API shape),
-  // then fall back to flat fields set by the getProperty thunk
+  // Derive display values from the landlord-contact record.
+  // API shape: { id, firstName, lastName, email, phone }
   // ─────────────────────────────────────────────────────────────
   const landlordName =
-    currentProperty?.landlord_contact?.name ||
-    currentProperty?.landlord?.name ||
-    currentProperty?.landlord_name ||
-    "Not Available";
+    landlordContact
+      ? `${landlordContact.firstName ?? ""} ${landlordContact.lastName ?? ""}`.trim() ||
+        "Not Available"
+      : "Not Available";
 
-  const landlordEmail =
-    currentProperty?.landlord_contact?.email ||
-    currentProperty?.landlord?.email ||
-    currentProperty?.landlord_email ||
-    "Not Available";
-
-  const landlordPhone =
-    currentProperty?.landlord_contact?.phone_number ||
-    currentProperty?.landlord?.phone ||
-    currentProperty?.landlord_phone ||
-    "Not Available";
-
-  const propertyId = extractPropertyId(tenantProperties, currentProperty);
+  const landlordEmail = landlordContact?.email   || "Not Available";
+  const landlordPhone = landlordContact?.phone   || "Not Available";
 
   // ─────────────────────────────────────────────────────────────
   // Shared Header (used in all render branches)
@@ -170,9 +123,9 @@ const ContactLandlord = () => {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Empty state — no property found
+  // Empty state — no landlord contact found
   // ─────────────────────────────────────────────────────────────
-  if (!currentProperty || !propertyId) {
+  if (!landlordContact) {
     return (
       <Container scroll={false}>
         <View style={styles.container}>

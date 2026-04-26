@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef  } from "react";
 import {
   View,
   Text,
@@ -19,64 +19,258 @@ import { useSelector, useDispatch } from "react-redux";
 import { getMaintenanceRequests } from "../../Redux/Maintenance/services";
 import { maintenanceSelectors } from "../../Redux/Maintenance/maintenanceSlice";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
-import { propertiesSelectors } from "../../Redux/Properties/propertiesSlice";
-import { getTenantProperties, getProperty } from "../../Redux/Properties/services";
+
+import { getMyProperties } from "../../Redux/Tenants/services";
+import { tenantsSelectors } from "../../Redux/Tenants/tenantsSlice";
+
+import { getProperty } from "../../Redux/Properties/services";
+import { propertiesSelectors , clearCurrentProperty} from "../../Redux/Properties/propertiesSlice";
+
+
+import { getUpcomingRents, createRent, getTenantRentHistory } from "../../Redux/Rent/services";
+import { rentSelectors, clearRentData } from "../../Redux/Rent/rentSlice";
+// ✅ Invite: auto-accept pending invite after login so getMyProperties returns data
+import { acceptInvitation } from "../../Redux/Invite/inviteServices";
+import { inviteSelectors, clearResolvedInvite } from "../../Redux/Invite/inviteSlice";
+
+
+// calls PATCH /api/invited-users/{inviteId}/accept → backend links tenantId
+// to the property-tenant record → getMyProperties now returns the property.
+const useAutoAcceptInvite = (dispatch) => {
+  const resolvedInvite = useSelector(inviteSelectors.getResolvedInvite);
+  const hasRun         = useRef(false);
+ 
+  useEffect(() => {
+    const inviteId = resolvedInvite?.inviteId;
+    if (!inviteId || hasRun.current) return;
+    hasRun.current = true;
+ 
+    dispatch(acceptInvitation(inviteId)).then((result) => {
+      if (acceptInvitation.fulfilled.match(result)) {
+        console.log('✅ Invite accepted — fetching properties');
+        dispatch(getMyProperties());
+      } else {
+        console.warn('⚠️ Invite accept failed:', result.payload);
+      }
+      dispatch(clearResolvedInvite());
+    });
+  }, [resolvedInvite?.inviteId]);
+};
+
+
+
+const normalizeRentForCard = (item) => ({
+  id:               item?.id || item?.rent_id,
+  amount:           item?.amount ?? item?.rent_amount ?? item?.rentAmount ?? null,
+  dueDate:          item?.due_date || item?.dueDate || item?.due_on || null,
+  currency:         item?.currency_symbol || item?.currency || '$',
+  status:           item?.status || item?.payment_status || 'pending',
+  month:            item?.month,
+  year:             item?.year,
+
+  // ✅ FIXED
+  propertyTenantId:
+    item?.propertyTenantId ||
+    item?.property_tenant_id ||
+    item?.property?.id || null,
+});
 
 const Dashboard = () => {
   const [showAllMaintenance, setShowAllMaintenance] = useState(false);
+  const [paying, setPaying] = useState(false);
   const navigation = useNavigation();
   const dispatch = useDispatch();
+    // ✅ Auto-accept pending invite right after login
+  useAutoAcceptInvite(dispatch);
 
-  // Get login data and token
-  const loginData = useSelector((state) => state.loginData || {});
-  const token = loginData?.accessToken;
-  const idToken = loginData?.idToken;
-  const tenant_sub = loginData?.userData?.tenantId;
+  // Auth
+  const loginData  = useSelector((state) => state.loginData || {});
+  const token      = loginData?.accessToken;
+  const tenant_sub =
+    loginData?.tenantId ||
+    loginData?.userData?.tenantId ||
+    loginData?.user?.id ||
+    null;
 
-  // Get properties data from Redux
-  const {
-    tenantProperties,
-    currentProperty: reduxCurrentProperty,
-  } = useSelector(propertiesSelectors.getPropertiesData);
+  // All property-tenant assignments for this tenant
+  const myProperties = useSelector(tenantsSelectors.getMyProperties);
 
-  // Get maintenance data from Redux
+  // Full property detail (includes monthlyRent).
+  // ✅ MUST be declared before assignedMonthlyRent which references it.
+  const { currentProperty } = useSelector(propertiesSelectors.getPropertiesData);
+
+  // Find the ACTIVE lease for this tenant
+  const activeLease = myProperties?.find(
+    (r) =>
+      (r.leaseStatus === 'occupied' || r.status === 'active') &&
+      (r.tenantId === tenant_sub || !r.tenantId)
+  ) || myProperties?.[0];
+
+const propertyTenantId = activeLease?.propertyId || null;
+
+  const activePropertyId =
+    activeLease?.propertyId ||
+    activeLease?.property?.id ||
+    null;
+
+const assignedMonthlyRent = Number(
+  activeLease?.property?.monthlyRent ??
+  activeLease?.property?.monthly_rent ??
+  currentProperty?.monthlyRent ??
+  currentProperty?.monthly_rent ??
+  0
+);
+
+  // Maintenance
   const {
     requests,
     loading: maintenanceLoading,
   } = useSelector(maintenanceSelectors.getMaintenanceData);
 
-  // Fetch tenant properties on mount
-  useEffect(() => {
-    if (token && tenant_sub) {
-      dispatch(getTenantProperties({ tenantId: tenant_sub, token }));
+  // ✅ Upcoming rents from Redux
+  const upcomingRentsRaw = useSelector(rentSelectors.getUpcomingRents);
+
+  // also read rent history — used as fallback if upcoming is empty
+  const rentHistoryRaw = useSelector(rentSelectors.getRentHistory);
+
+  const rentLoading = useSelector(rentSelectors.isLoading);
+ 
+
+  
+  const pendingRent = (() => {
+  const ptId = propertyTenantId;
+
+  // ✅ filter upcoming rents
+  const validUpcoming = upcomingRentsRaw?.find(
+    (r) =>
+      (r.propertyTenantId || r.property_tenant_id) === ptId
+  );
+
+  if (validUpcoming) {
+    return normalizeRentForCard(validUpcoming);
+  }
+
+  // ✅ fallback to history (filtered)
+  const historyPending = rentHistoryRaw?.find(
+    (r) =>
+      (r.propertyTenantId || r.property_tenant_id) === ptId &&
+      (r.status || r.payment_status || '').toLowerCase() === 'pending'
+  );
+
+  if (historyPending) {
+    return normalizeRentForCard(historyPending);
+  }
+
+  return null;
+})();
+
+
+  const nextRentDate = (() => {
+    const latest = (rentHistoryRaw || []).reduce(
+      (max, r) => {
+        const y = Number(r.year)  || 0;
+        const m = Number(r.month) || 0;
+        return y > max.year || (y === max.year && m > max.month)
+          ? { month: m, year: y }
+          : max;
+      },
+      { month: 0, year: 0 }
+    );
+
+    if (latest.month > 0 && latest.year > 0) {
+      return {
+        month: latest.month === 12 ? 1 : latest.month + 1,
+        year:  latest.month === 12 ? latest.year + 1 : latest.year,
+      };
     }
-  }, [dispatch, token, tenant_sub]);
+    // No history yet — fall back to the pending rent's own month/year
+  const today = new Date();
 
-  // Get current property (from Redux or first tenant property)
-  const currentProperty =
-    reduxCurrentProperty ||
-    (tenantProperties && tenantProperties.length > 0 ? tenantProperties[0] : null);
+return {
+  month: today.getMonth() + 1, // 1–12
+  year: today.getFullYear(),
+};
+  })();
 
-  // Extract property ID
-  const propertyId =
-    currentProperty?.property_id ||
-    currentProperty?.propertyId ||
-    currentProperty?.id;
+const rentAmount =
+  pendingRent?.amount
+    ? `${pendingRent.currency}${pendingRent.amount}`
+    : assignedMonthlyRent > 0
+    ? `$${assignedMonthlyRent}`
+    : '--';
 
-  // Fetch detailed property data when propertyId is available
+  // Due date is always the 1st of the next month to be created
+  const rentDueDate = (() => {
+    const { month, year } = nextRentDate;
+    if (!month || !year) return '--';
+    return new Date(year, month - 1, 1).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+    });
+  })();
+
+  // Step 1 — fetch tenant's property assignments on mount
   useEffect(() => {
-    if (propertyId && token) {
-      dispatch(getProperty({ propertyId, token }));
+    dispatch(getMyProperties());
+  }, [dispatch]);
+
+  // Step 2 — once active lease is found, fetch full property detail (has monthlyRent)
+  useEffect(() => {
+    if (activePropertyId && token) {
+      dispatch(getProperty({ propertyId: activePropertyId, token }));
     }
-  }, [dispatch, propertyId, token]);
+  }, [dispatch, activePropertyId, token]);
 
   // Fetch maintenance requests
   useEffect(() => {
     if (token && tenant_sub) {
-      dispatch(getMaintenanceRequests({ tenant_id: tenant_sub, token: idToken }));
+      dispatch(getMaintenanceRequests({ tenant_id: tenant_sub, token }));
     }
-  }, [dispatch, idToken, tenant_sub]);
+  }, [dispatch, token, tenant_sub]);
+  
+  
 
+ 
+useEffect(() => {
+  if (!tenant_sub) return;
+  dispatch(clearRentData());
+  dispatch(clearCurrentProperty());
+  dispatch(getUpcomingRents());
+  dispatch(getTenantRentHistory());
+}, [dispatch, tenant_sub]);
+
+console.log("🔍 pendingRent:", pendingRent);
+console.log("🔍 assignedMonthlyRent:", assignedMonthlyRent);
+console.log("🔍 activeLease:", activeLease);
+
+const handlePayRent = async () => {
+  if (pendingRent) {
+    console.log("⚠️ Rent already exists, redirect to payment flow");
+    
+    // 👉 Ideally navigate to payment screen instead
+    // navigation.navigate("Payment", { rentId: pendingRent.id });
+
+    return;
+  }
+
+  const ptId = propertyTenantId;
+  const { month, year } = nextRentDate;
+
+  if (!ptId || !month || !year) return;
+
+  setPaying(true);
+
+  await dispatch(createRent({
+    propertyTenantId: ptId,
+    month,
+    year,
+  }));
+
+  dispatch(getUpcomingRents());
+  dispatch(getTenantRentHistory());
+
+  setPaying(false);
+};
+  // ── Maintenance helpers ───────────────────────────────────────────────────
   const getDisplayStatus = (item) => {
     if (item.contractor_assignment?.state?.toUpperCase() === "COMPLETED") return "Resolved";
     const mainStatus = item.status?.toLowerCase();
@@ -92,10 +286,10 @@ const Dashboard = () => {
 
   const newRequestCount = requests.filter((r) => getDisplayStatus(r) === "New Request").length;
   const inProgressCount = requests.filter((r) => getDisplayStatus(r) === "In Progress").length;
-  const completedCount = requests.filter((r) => getDisplayStatus(r) === "Resolved").length;
+  const completedCount  = requests.filter((r) => getDisplayStatus(r) === "Resolved").length;
 
   const getUpcomingMaintenance = () => {
-    const now = new Date();
+    const now   = new Date();
     const today = new Date(now.setHours(0, 0, 0, 0));
     return requests
       .filter((item) => {
@@ -107,7 +301,9 @@ const Dashboard = () => {
           item.status?.toLowerCase() !== "resolved"
         );
       })
-      .sort((a, b) => new Date(a.preferred_window.start_utc) - new Date(b.preferred_window.start_utc));
+      .sort((a, b) =>
+        new Date(a.preferred_window.start_utc) - new Date(b.preferred_window.start_utc)
+      );
   };
 
   const upcomingMaintenance = getUpcomingMaintenance();
@@ -118,21 +314,17 @@ const Dashboard = () => {
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";
     return new Date(dateString).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
+      month: "short", day: "numeric", year: "numeric",
     });
   };
 
   const formatTimeWindow = (startUtc, endUtc) => {
     if (!startUtc || !endUtc) return "";
-    const formatTime = (date) =>
-      new Date(date).toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
+    const fmt = (d) =>
+      new Date(d).toLocaleTimeString("en-US", {
+        hour: "numeric", minute: "2-digit", hour12: true,
       });
-    return `${formatTime(startUtc)} - ${formatTime(endUtc)}`;
+    return `${fmt(startUtc)} - ${fmt(endUtc)}`;
   };
 
   return (
@@ -164,35 +356,48 @@ const Dashboard = () => {
         </View>
       </View>
 
-      {/* Rent Payment Card */}
-      <View style={styles.rentCardWrapper}>
-        <View style={styles.glassCard}>
-          <View style={styles.rentCardInner}>
-            <View style={styles.row}>
-              <View style={styles.rentIconBox}>
-                <AppIcon name={icons.RentHistory} height={hp(3)} width={hp(3)} />
-              </View>
+     {/* Rent Payment Card */}
+<View style={styles.rentCardWrapper}>
+  <View style={styles.glassCard}>
+    <View style={styles.rentCardInner}>
+      {/* ✅ Show assigned property name */}
 
-              <View style={styles.rentTextBlock}>
-                <Text style={styles.rentAmount}>$2600</Text>
-                <Text style={styles.rentSubText}>Pay your rent now</Text>
-              </View>
 
-              <TouchableOpacity style={styles.payRentBtn}>
-                <Text style={styles.payRentBtnText}>Pay Rent</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={[styles.row, { marginTop: hp(1.5) }]}>
-              <AppIcon name={icons.calendar} height={hp(2)} width={hp(2)} />
-              <Text style={[styles.rentSubText, { marginLeft: 6 }]}>
-                Next Due Date:{" "}
-                <Text style={styles.boldBlack}>Sep 28, 2025</Text>
-              </Text>
-            </View>
-          </View>
+      <View style={styles.row}>
+        <View style={styles.rentIconBox}>
+          <AppIcon name={icons.RentHistory} height={hp(3)} width={hp(3)} />
         </View>
+        <View style={styles.rentTextBlock}>
+          {rentLoading ? (
+            <ActivityIndicator size="small" color={Colors.red} />
+          ) : (
+            <Text style={styles.rentAmount}>{rentAmount}</Text>
+          )}
+          <Text style={styles.rentSubText}>Monthly Rent</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.payRentBtn, paying && { opacity: 0.7 }]}
+          onPress={handlePayRent}
+        disabled={paying || !propertyTenantId || !!pendingRent}
+        >
+          {paying
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <Text style={styles.payRentBtnText}>Pay Rent</Text>}
+        </TouchableOpacity>
       </View>
+
+      <View style={[styles.row, { marginTop: hp(1.5) }]}>
+        <AppIcon name={icons.calendar} height={hp(2)} width={hp(2)} />
+        <Text style={[styles.rentSubText, { marginLeft: 6 }]}>
+          Next Due Date:{' '}
+          {rentLoading
+            ? <Text style={styles.boldBlack}>--</Text>
+            : <Text style={styles.boldBlack}>{rentDueDate}</Text>}
+        </Text>
+      </View>
+    </View>
+  </View>
+</View>
 
       {/* Request Help Section */}
       <View style={styles.section}>
@@ -330,7 +535,7 @@ const Dashboard = () => {
   );
 };
 
-// Quick Link Component
+// Quick Link Component (unchanged)
 const QuickLink = ({ icon, label, onPress }) => (
   <TouchableOpacity style={styles.quickLink} onPress={onPress}>
     <View style={styles.iconCircle}>
@@ -375,7 +580,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   glassCardInner: { padding: hp(2) },
-  rentCardInner: { padding: hp(2) },
+  rentCardInner:  { padding: hp(2) },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -392,12 +597,12 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   rentAmount: {
-    fontSize: hp(3.2),
+    fontSize: hp(2.2),
     fontWeight: "bold",
     color: Colors.black,
   },
   rentSubText: {
-    fontSize: hp(1.8),
+    fontSize: hp(1.5),
     color: Colors.textGray,
   },
   boldBlack: {
@@ -474,9 +679,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: hp(1.8),
   },
-  maintenanceList: {
-    gap: 12,
-  },
+  maintenanceList: { gap: 12 },
   maintenanceItem: {
     flexDirection: "row",
     alignItems: "center",

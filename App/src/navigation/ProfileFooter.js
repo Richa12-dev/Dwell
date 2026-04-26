@@ -245,10 +245,16 @@ import TenantManagement from '../screens/Support/TenantManagement';
 import RentCollection from '../screens/Payment/RentCollection';
 
 
+
 const Tab = createBottomTabNavigator();
 
 // Custom Bubble Tab Bar (copied from BottonFooter)
 const CustomTabBarOverlay = ({state, descriptors, navigation}) => {
+    
+    // Hide the entire tab bar on the AI Assistant screen
+    const currentRoute = state.routes[state.index]?.name;
+    if (currentRoute === 'AIAssistant') return null;
+   
   const TabBarArr = [
     {
       route: 'Home',

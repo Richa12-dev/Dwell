@@ -1,3 +1,4 @@
+// screens/TenantNotification/TenantNotification.jsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -8,6 +9,7 @@ import {
   TextInput,
   ActivityIndicator,
   RefreshControl,
+    KeyboardAvoidingView,
 } from "react-native";
 import Modal from "react-native-modal";
 import {
@@ -16,6 +18,8 @@ import {
 } from "react-native-responsive-screen";
 import { useDispatch, useSelector } from "react-redux";
 import Toast from "react-native-simple-toast";
+import DateTimePicker from "@react-native-community/datetimepicker";
+
 import { Colors } from "../../Theme";
 import { getFontFamily } from "../../utils";
 import { AppIcon } from "../../components/AppIcon";
@@ -25,191 +29,156 @@ import {
   getNotifications,
   createNotification,
   markNotificationAsRead,
+  markAllAsRead,
   notificationSelectors,
 } from "../../Redux/NotificationServices/notificationSlice";
 import { loginDataSelectors } from "../../Redux/Login/loginSlice";
-import DateTimePicker from '@react-native-community/datetimepicker';
 
+// ─── Component ────────────────────────────────────────────────────────────────
 const TenantNotification = ({ navigation }) => {
   const dispatch = useDispatch();
-  
-  // Redux selectors
-  const notifications = useSelector(notificationSelectors.selectAllNotifications);
-  const loading = useSelector(notificationSelectors.selectLoading);
-  const error = useSelector(notificationSelectors.selectError);
-  const accessToken = useSelector(loginDataSelectors.getAccessToken);
-  
-  // Local state
-  const [modalVisible, setModalVisible] = useState(false);
-  const [subject, setSubject] = useState("");
-  const [date, setDate] = useState("");
-  const [description, setDescription] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
 
-  // Fetch notifications on mount
+  // ── Redux state ──────────────────────────────────────────────────────────
+  const notifications = useSelector(notificationSelectors.selectAllNotifications);
+  const unreadCount   = useSelector(notificationSelectors.selectUnreadCount);
+  const loading       = useSelector(notificationSelectors.selectLoading);
+  const error         = useSelector(notificationSelectors.selectError);
+  const accessToken   = useSelector(loginDataSelectors.getAccessToken);
+
+  // ── Local state ──────────────────────────────────────────────────────────
+  const [modalVisible, setModalVisible]   = useState(false);
+  const [subject, setSubject]             = useState("");
+  const [date, setDate]                   = useState("");
+  const [description, setDescription]     = useState("");
+  const [refreshing, setRefreshing]       = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedDate, setSelectedDate]   = useState(new Date());
+
+  // ── Fetch on mount ───────────────────────────────────────────────────────
   useEffect(() => {
     if (accessToken) {
-      dispatch(getNotifications({ filter: 'all', limit: 100 }));
+      dispatch(getNotifications({ filter: "all", limit: 100 }));
     }
   }, [dispatch, accessToken]);
 
-  // Handle pull-to-refresh
+  // ── Pull-to-refresh ──────────────────────────────────────────────────────
   const onRefresh = async () => {
-    if (accessToken) {
-      setRefreshing(true);
-      try {
-        await dispatch(getNotifications({ filter: 'all', limit: 100 })).unwrap();
-      } catch (err) {
-        console.error('Refresh failed:', err);
-      } finally {
-        setRefreshing(false);
-      }
+    if (!accessToken) return;
+    setRefreshing(true);
+    try {
+      await dispatch(getNotifications({ filter: "all", limit: 100 })).unwrap();
+    } catch (err) {
+      console.error("Refresh failed:", err);
+    } finally {
+      setRefreshing(false);
     }
   };
 
-  // Handle date selection
-  const onDateChange = (event, selectedDate) => {
+  // ── Date picker ──────────────────────────────────────────────────────────
+  const onDateChange = (event, pickedDate) => {
     setShowDatePicker(false);
-    
-    if (selectedDate) {
-      setSelectedDate(selectedDate);
-      // Format date as YYYY-MM-DD
-      const year = selectedDate.getFullYear();
-      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
-      const day = String(selectedDate.getDate()).padStart(2, '0');
-      const formattedDate = `${year}-${month}-${day}`;
-      setDate(formattedDate);
-    }
+    if (!pickedDate) return;
+
+    setSelectedDate(pickedDate);
+    const y  = pickedDate.getFullYear();
+    const m  = String(pickedDate.getMonth() + 1).padStart(2, "0");
+    const d  = String(pickedDate.getDate()).padStart(2, "0");
+    setDate(`${y}-${m}-${d}`);
   };
 
-  // Handle adding new notification
+  // ── Reset modal form ─────────────────────────────────────────────────────
+  const resetForm = () => {
+    setSubject("");
+    setDate("");
+    setDescription("");
+  };
+
+  // ── Create notification ──────────────────────────────────────────────────
   const handleAddNotification = async () => {
-    // Trim whitespace from inputs
-    const trimmedSubject = subject.trim();
+    const trimmedSubject     = subject.trim();
     const trimmedDescription = description.trim();
-    const trimmedDate = date.trim();
+    const trimmedDate        = date.trim();
 
     if (!trimmedSubject || !trimmedDescription) {
-      Toast.show('Please fill in all required fields');
+      Toast.show("Please fill in all required fields");
       return;
     }
 
-    console.log('📤 Attempting to create notification...');
-    console.log('Subject:', trimmedSubject);
-    console.log('Description:', trimmedDescription);
-    console.log('Date:', trimmedDate);
-    console.log('Access Token exists:', !!accessToken);
-
+    // Build payload
     const notificationData = {
-      subject: trimmedSubject,
+      subject:     trimmedSubject,
       description: trimmedDescription,
-      recipients: { mode: 'AUTO' },
+      recipients:  { mode: "AUTO" },
     };
 
-    // Add scheduled_for if date is provided
+    // Parse & attach optional scheduled_for (ISO string)
     if (trimmedDate) {
-      try {
-        // Parse YYYY-MM-DD format and set to a specific time
-        const [year, month, day] = trimmedDate.split('-');
-        
-        if (year && month && day) {
-          // Create date at noon UTC to avoid timezone issues
-          const scheduledDate = new Date(Date.UTC(
-            parseInt(year),
-            parseInt(month) - 1, // Month is 0-indexed
-            parseInt(day),
-            12, // noon
-            0,
-            0
-          ));
-
-          if (!isNaN(scheduledDate.getTime())) {
-            notificationData.scheduled_for = scheduledDate.toISOString();
-            console.log('✅ Scheduled for:', notificationData.scheduled_for);
-          } else {
-            console.warn('⚠️ Invalid date, using immediate delivery');
-            Toast.show('Invalid date format. Notification will be sent immediately.');
-          }
+      const [year, month, day] = trimmedDate.split("-");
+      if (year && month && day) {
+        const scheduledDate = new Date(
+          Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0)
+        );
+        if (!isNaN(scheduledDate.getTime())) {
+          notificationData.scheduled_for = scheduledDate.toISOString();
         } else {
-          console.warn('⚠️ Invalid date format, using immediate delivery');
-          Toast.show('Invalid date format. Use YYYY-MM-DD. Sending immediately.');
+          Toast.show("Invalid date — notification will be sent immediately.");
         }
-      } catch (err) {
-        console.error('❌ Date parsing error:', err);
-        Toast.show('Invalid date format. Notification will be sent immediately.');
       }
     }
 
     try {
-      console.log('🔄 Dispatching createNotification with data:', JSON.stringify(notificationData, null, 2));
-      const result = await dispatch(createNotification(notificationData)).unwrap();
-      console.log('✅ Notification created successfully:', result);
-      
-      // Clear form
-      setSubject("");
-      setDate("");
-      setDescription("");
+      await dispatch(createNotification(notificationData)).unwrap();
+      resetForm();
       setModalVisible(false);
-      
-      // Refresh notifications list
-      console.log('🔄 Refreshing notifications list...');
-      await dispatch(getNotifications({ filter: 'all', limit: 100 })).unwrap();
-      console.log('✅ Notifications refreshed');
+      // Refresh list after creation
+      await dispatch(getNotifications({ filter: "all", limit: 100 })).unwrap();
     } catch (err) {
-      console.error('❌ ============ ERROR CAUGHT IN COMPONENT ============');
-      console.error('❌ Full error object:', err);
-      console.error('❌ Error type:', typeof err);
-      console.error('❌ Error constructor:', err?.constructor?.name);
-      console.error('❌ Error message:', err?.message);
-      console.error('❌ Error string value:', String(err));
-      console.error('❌ Error keys:', Object.keys(err || {}));
-      console.error('❌ Error JSON:', JSON.stringify(err, null, 2));
-      console.error('❌ ================================================');
-      
-      // Error is already shown by the service via Toast
-      // Only show additional message if needed
-      if (!err || (typeof err !== 'string' && !err.message)) {
-        Toast.show('Failed to create notification. Please try again.');
+      // Toast is already shown by the thunk; only show fallback if nothing came through
+      if (!err || (typeof err !== "string" && !err.message)) {
+        Toast.show("Failed to create notification. Please try again.");
       }
     }
   };
 
-  // Handle notification press (mark as read)
+  // ── Mark single notification as read ─────────────────────────────────────
   const handleNotificationPress = (notification) => {
     if (!notification.read_at) {
-      dispatch(markNotificationAsRead({
-        notificationId: notification.notification_id,
-        scheduledForUtc: notification.scheduled_for_utc,
-      }));
+      dispatch(
+        markNotificationAsRead({
+          notificationId:  notification.notification_id,
+          scheduledForUtc: notification.scheduled_for_utc,
+        })
+      );
     }
   };
 
-  // Format time
+  // ── Mark all as read ─────────────────────────────────────────────────────
+  const handleMarkAllRead = () => {
+    if (unreadCount === 0) return;
+    dispatch(markAllAsRead());
+  };
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
   const formatTime = (timestamp) => {
-    if (!timestamp) return 'Now';
-    
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
+    if (!timestamp) return "Now";
+    return new Date(timestamp).toLocaleTimeString("en-US", {
+      hour:   "numeric",
+      minute: "2-digit",
       hour12: true,
     });
   };
 
+  // ── Render helpers ────────────────────────────────────────────────────────
   const renderNotification = ({ item }) => (
     <TouchableOpacity
-      style={[
-        styles.notificationCard,
-        !item.read_at && styles.unreadNotification,
-      ]}
+      style={[styles.notificationCard, !item.read_at && styles.unreadNotification]}
       onPress={() => handleNotificationPress(item)}
       activeOpacity={0.7}
     >
       <View style={styles.iconContainer}>
         <AppIcon name={icons.dLogo} size={22} />
       </View>
+
       <View style={styles.textContainer}>
         <Text style={styles.title}>{item.subject}</Text>
         <Text style={styles.message} numberOfLines={2}>
@@ -219,6 +188,7 @@ const TenantNotification = ({ navigation }) => {
           <Text style={styles.statusText}>Status: {item.status}</Text>
         )}
       </View>
+
       <View style={styles.timeContainer}>
         <Text style={styles.time}>
           {formatTime(item.scheduled_for_utc || item.created_at)}
@@ -232,39 +202,53 @@ const TenantNotification = ({ navigation }) => {
     <View style={styles.emptyContainer}>
       <Text style={styles.emptyText}>No notifications yet</Text>
       <Text style={styles.emptySubtext}>
-        Create a new notification to get started
+        Tap the + button to create your first notification
       </Text>
     </View>
   );
 
+  // ── Full-screen loading (first load only) ─────────────────────────────────
   if (loading && notifications.length === 0) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.red} />
-        <Text style={styles.loadingText}>Loading notifications...</Text>
+        <Text style={styles.loadingText}>Loading notifications…</Text>
       </View>
     );
   }
 
+  // ── Main render ───────────────────────────────────────────────────────────
   return (
+          <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
     <View style={{ flex: 1 }}>
       <Container scroll={false}>
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <AppIcon name={icons.arrowBack} size={22} />
           </TouchableOpacity>
           <Text style={styles.pageHeaderTitle}>Notifications</Text>
+
+          {/* Mark all read button — visible only when there are unread items */}
+          {unreadCount > 0 && (
+            <TouchableOpacity onPress={handleMarkAllRead} style={styles.markAllBtn}>
+              <Text style={styles.markAllText}>Mark all read</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* Error message */}
+        {/* Error banner */}
         {error && (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
 
-        {/* Notification List */}
+        {/* Notification list */}
         <FlatList
           data={notifications}
           renderItem={renderNotification}
@@ -283,66 +267,55 @@ const TenantNotification = ({ navigation }) => {
         />
       </Container>
 
-      {/* Floating Add Button */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => setModalVisible(true)}
-        activeOpacity={0.7}
-      >
+      {/* Floating add button */}
+      <TouchableOpacity style={styles.fab} onPress={() => setModalVisible(true)}>
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
 
-      {/* Create Notification Modal */}
+      {/* Create notification modal */}
       <Modal
         isVisible={modalVisible}
         onBackdropPress={() => setModalVisible(false)}
-        style={{ margin: 0, justifyContent: "flex-end" }}
+        style={{ justifyContent: "flex-end", margin: 0 }}
       >
         <View style={styles.modalContainer}>
-          {/* Unified Header */}
+          {/* Modal header */}
           <View style={styles.modalHeaderContainer}>
-            <Text style={styles.modalHeaderTitle}>Create Notification</Text>
+            <Text style={styles.modalHeaderTitle}>New Notification</Text>
             <TouchableOpacity
-              onPress={() => setModalVisible(false)}
               style={styles.closeButton}
+              onPress={() => setModalVisible(false)}
             >
-              <AppIcon name={icons.close} height={hp(2.3)} width={hp(2.3)} />
+              <AppIcon name={icons.close} size={22} />
             </TouchableOpacity>
           </View>
 
           {/* Subject */}
           <Text style={styles.label}>Subject*</Text>
           <TextInput
-            placeholder="Enter Notification Subject"
+            placeholder="Enter notification subject"
             style={styles.input}
             value={subject}
             onChangeText={setSubject}
           />
 
-          {/* Date */}
-          <Text style={styles.label}>Date (Optional)</Text>
-         <View style={styles.dateInputContainer}>
-  <TextInput
-    placeholder="YYYY-MM-DD (tap calendar to select)"
-    style={styles.dateInput}
-    value={date}
-    editable={false}
-  />
-  <TouchableOpacity
-    onPress={() => setShowDatePicker(true)}
-    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-    style={styles.calendarIconButton}
-  >
-    <AppIcon
-      name={icons.calender}
-      height={hp(2.5)}
-      width={hp(2.5)}
-      color={Colors.red}
-    />
-  </TouchableOpacity>
-</View>
+          {/* Schedule date (optional) */}
+          <Text style={styles.label}>Schedule Date (optional)</Text>
+          <TouchableOpacity
+            style={styles.dateInputContainer}
+            onPress={() => setShowDatePicker(true)}
+          >
+            <TextInput
+              placeholder="YYYY-MM-DD"
+              style={styles.dateInput}
+              value={date}
+              onChangeText={setDate}
+              editable={false}
+              pointerEvents="none"
+            />
+            <AppIcon name={icons.calendar} size={18} />
+          </TouchableOpacity>
 
-          {/* Date Picker */}
           {showDatePicker && (
             <DateTimePicker
               value={selectedDate}
@@ -368,11 +341,7 @@ const TenantNotification = ({ navigation }) => {
           <View style={styles.buttonRow}>
             <TouchableOpacity
               style={[styles.resetButton, { backgroundColor: "#E0E0E0" }]}
-              onPress={() => {
-                setSubject("");
-                setDate("");
-                setDescription("");
-              }}
+              onPress={resetForm}
             >
               <Text style={[styles.buttonText, { color: "#000" }]}>Reset</Text>
             </TouchableOpacity>
@@ -398,10 +367,13 @@ const TenantNotification = ({ navigation }) => {
         </View>
       </Modal>
     </View>
+    </KeyboardAvoidingView>
   );
 };
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
+  // Header
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -411,24 +383,37 @@ const styles = StyleSheet.create({
     marginHorizontal: wp(5),
   },
   pageHeaderTitle: {
+    flex: 1,
     fontSize: wp(5),
     fontFamily: getFontFamily("bold"),
     color: "#000",
   },
+  markAllBtn: {
+    paddingHorizontal: wp(2),
+  },
+  markAllText: {
+    fontSize: wp(3.4),
+    color: Colors.red,
+    fontFamily: getFontFamily("medium"),
+  },
+
+  // List
   listContainer: {
     paddingHorizontal: wp(5),
     paddingBottom: hp(12),
     flexGrow: 1,
   },
+
+  // Notification card
   notificationCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
+    backgroundColor: "rgba(255,255,255,0.7)",
     borderRadius: 12,
     padding: wp(4),
     marginBottom: hp(2),
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    borderColor: "rgba(255,255,255,0.3)",
     shadowColor: "#000",
     shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: 2 },
@@ -436,7 +421,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   unreadNotification: {
-    backgroundColor: "rgba(252, 234, 234, 0.5)",
+    backgroundColor: "rgba(252,234,234,0.5)",
     borderColor: Colors.red,
     borderWidth: 1.5,
   },
@@ -463,13 +448,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontStyle: "italic",
   },
-  timeContainer: {
-    alignItems: "flex-end",
-  },
-  time: {
-    fontSize: wp(3),
-    color: "#888"
-  },
+  timeContainer: { alignItems: "flex-end" },
+  time: { fontSize: wp(3), color: "#888" },
   unreadDot: {
     width: 8,
     height: 8,
@@ -478,7 +458,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // Loading & Empty states
+  // Loading & empty states
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -504,9 +484,10 @@ const styles = StyleSheet.create({
     fontSize: wp(3.5),
     color: "#666",
     marginTop: hp(1),
+    textAlign: "center",
   },
 
-  // Error
+  // Error banner
   errorContainer: {
     backgroundColor: "#fee",
     padding: wp(3),
@@ -514,12 +495,9 @@ const styles = StyleSheet.create({
     marginBottom: hp(2),
     borderRadius: 8,
   },
-  errorText: {
-    color: "#c00",
-    fontSize: wp(3.5),
-  },
+  errorText: { color: "#c00", fontSize: wp(3.5) },
 
-  // Floating Button
+  // FAB
   fab: {
     position: "absolute",
     bottom: hp(5),
@@ -527,7 +505,7 @@ const styles = StyleSheet.create({
     width: wp(18),
     height: wp(18),
     borderRadius: wp(9),
-    backgroundColor: Colors.red,
+    backgroundColor: Colors.black,
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
@@ -625,9 +603,7 @@ const styles = StyleSheet.create({
     fontSize: wp(3.8),
     fontFamily: getFontFamily("semibold"),
   },
-  disabledButton: {
-    opacity: 0.6,
-  },
+  disabledButton: { opacity: 0.6 },
 });
 
 export default TenantNotification;

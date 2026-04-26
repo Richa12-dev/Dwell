@@ -12,6 +12,7 @@ import {
   Image,
   ActivityIndicator,
   Linking,
+   Animated,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useFocusEffect } from '@react-navigation/native';
@@ -23,18 +24,21 @@ import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { Colors } from '../../Theme';
 import Container from '../../components/Container/Container';
 
-// ─── Main Chatbot Redux ───────────────────────────────────────────────────────
+import Voice from '@react-native-voice/voice';
+
+
+// ─── AI (AWS) Redux ───────────────────────────────────────────────────────────
 import {
-  sendMainChatMessage,
-  getMainChatbotSuggestions,
-} from '../../Redux/MainChatbot/mainChatbotServices';
+  sendChatMessageNew,
+  sendChatMessageWithImage,
+  getAISuggestions,
+} from '../../Redux/Ai/services';
 import {
-  setSessionId,
-  clearMessages,
-  clearError,
-  setShowSuggestions as setShowSuggestionsAction,
-  mainChatbotSelectors,
-} from '../../Redux/MainChatbot/mainChatbotSlice';
+  setCurrentSessionId,
+  clearChatMessages,
+  clearChatError,
+  chatSelectors,
+} from '../../Redux/Ai/aiSlice';
 
 import { loginDataSelectors } from '../../Redux/Login/loginSlice';
 import { getLandlordProperties } from '../../Redux/Properties/services';
@@ -42,20 +46,118 @@ import Hyperlink from 'react-native-hyperlink';
 import { AppIcon } from '../../components/AppIcon';
 import { icons } from '../../Assets';
 
-// ─── CitationList ─────────────────────────────────────────────────────────────
-// Renders the source citations returned by the /chat API
-const CitationList = React.memo(({ citations }) => {
-  if (!citations || citations.length === 0) return null;
+// ─── Workflow badge ───────────────────────────────────────────────────────────
+// Maps the classifier's workflow_type to a human-readable label and colour.
+const WORKFLOW_LABELS = {
+  maintenance_ticket: { label: '🔧 Maintenance ticket', color: '#e65100' },
+  rent_inquiry:       { label: '💰 Rent inquiry',       color: '#1565c0' },
+  lease_question:     { label: '📄 Lease question',     color: '#4527a0' },
+};
+const WorkflowBadge = ({ workflowType, workflowStatus }) => {
+  if (!workflowType) return null;
+  const meta  = WORKFLOW_LABELS[workflowType] || { label: workflowType, color: '#555' };
+  const isDenied = workflowStatus === 'denied';
   return (
-    <View style={styles.citationsContainer}>
-      <Text style={styles.citationsLabel}>Sources:</Text>
-      {citations.map((c) => (
-        <Text key={c.chunk_id || c.citation_id} style={styles.citationItem}>
-          {c.citation_id} {c.title || 'Unknown source'}
-        </Text>
+    <View style={[badgeStyles.row, { borderColor: meta.color }]}>
+      <Text style={[badgeStyles.label, { color: meta.color }]}>{meta.label}</Text>
+      {isDenied && <Text style={badgeStyles.denied}>· access denied</Text>}
+    </View>
+  );
+};
+const badgeStyles = StyleSheet.create({
+  row:    { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: wp(3), paddingHorizontal: wp(2), paddingVertical: hp(0.4), marginBottom: hp(0.6), alignSelf: 'flex-start' },
+  label:  { fontSize: hp(1.4), fontWeight: '600' },
+  denied: { fontSize: hp(1.4), color: '#b71c1c', marginLeft: wp(1) },
+});
+
+// ─── Waveform (ChatGPT style animated bars) ───────────────────────────────────
+const BAR_COUNT = 30;
+const VoiceWaveform = () => {
+  const anims = useRef(
+    Array.from({ length: BAR_COUNT }, () => new Animated.Value(0.15))
+  ).current;
+ 
+  useEffect(() => {
+    const loops = anims.map((anim, i) => {
+      const delay    = (i * 60) % 500;
+      const duration = 250 + (i % 5) * 80;
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: 0.2 + (i % 3) * 0.3, duration, useNativeDriver: false }),
+          Animated.timing(anim, { toValue: 0.15,                 duration, useNativeDriver: false }),
+        ])
+      );
+    });
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, []);
+ 
+  return (
+    <View style={waveStyles.wrapper}>
+      {anims.map((anim, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            waveStyles.bar,
+            {
+              height: anim.interpolate({
+                inputRange:  [0, 1],
+                outputRange: [hp(0.5), hp(3.2)],
+              }),
+            },
+          ]}
+        />
       ))}
     </View>
   );
+};
+const waveStyles = StyleSheet.create({
+  wrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: wp(1),
+  },
+  bar: {
+    width: wp(0.7),
+    borderRadius: wp(0.35),
+    backgroundColor: '#D64545',
+    marginHorizontal: wp(0.25),
+  },
+});
+
+// ─── Pulsing recording dot ────────────────────────────────────────────────────
+const RecordingIndicator = () => {
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.4, duration: 600, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1,   duration: 600, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulse]);
+  return (
+    <View style={recStyles.row}>
+      <Animated.View style={[recStyles.dot, { transform: [{ scale: pulse }] }]} />
+      <Text style={recStyles.label}>Listening…</Text>
+    </View>
+  );
+};
+const recStyles = StyleSheet.create({
+  row:   {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: wp(4), marginBottom: hp(0.8),
+  },
+  dot:   {
+    width: hp(1.2), height: hp(1.2), borderRadius: hp(0.6),
+    backgroundColor: '#D64545', marginRight: wp(2),
+  },
+  label: { fontSize: hp(1.7), color: '#D64545', fontWeight: '600' },
 });
 
 // ─── MessageItem ──────────────────────────────────────────────────────────────
@@ -87,10 +189,23 @@ const MessageItem = React.memo(({ msg }) => {
         <Text style={styles.sourceIndicator}>AI Assistant</Text>
       )}
 
-      {msg.hasMedia && msg.mediaUri && (
+      {/* Image thumbnail in the user bubble */}
+      {msg.hasImage && msg.imageUri && (
         <View style={styles.messageImageContainer}>
-          <Image source={{ uri: msg.mediaUri }} style={styles.messageImage} resizeMode="cover" />
+          <Image
+            source={{ uri: msg.imageUri }}
+            style={styles.messageImage}
+            resizeMode="cover"
+          />
         </View>
+      )}
+
+      {/* Workflow badge on AI replies (maintenance ticket, rent inquiry, …) */}
+      {!isUser && (msg.workflowType || msg.executionType === 'hybrid') && (
+        <WorkflowBadge
+          workflowType={msg.workflowType}
+          workflowStatus={msg.workflowStatus}
+        />
       )}
 
       <Hyperlink
@@ -106,9 +221,6 @@ const MessageItem = React.memo(({ msg }) => {
         </Text>
       </Hyperlink>
 
-      {/* ✅ Show citations below bot messages */}
-      {!isUser && !isError && <CitationList citations={msg.citations} />}
-
       <Text style={[styles.timestamp, { color: isError ? '#d32f2f' : Colors.gray }]}>
         {msg.timestamp
           ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -120,10 +232,23 @@ const MessageItem = React.memo(({ msg }) => {
 
 // ─── AIAssistant ──────────────────────────────────────────────────────────────
 const AIAssistant = ({ navigation, route }) => {
-  const [messageText, setMessageText]     = useState('');
+  const [messageText, setMessageText]           = useState('');
   const [isComponentMounted, setIsComponentMounted] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [localSuggestions, setLocalSuggestions]     = useState([]);
+  const [selectedImage, setSelectedImage]       = useState(null);
+  const [showSuggestions, setShowSuggestions]   = useState(true);
+  const [localSuggestions, setLocalSuggestions] = useState([]);
+  
+    // ── Voice states ─────────────────────────────────────────────────────────────
+  const [isRecording, setIsRecording] = useState(false);
+  const [voiceReady, setVoiceReady]   = useState(false);
+  const isVoiceMessageRef             = useRef(false);
+
+  // Refs so Voice callbacks always see the latest values without stale closures
+  const isRecordingRef     = useRef(false);
+  const accumulatedTextRef = useRef('');  // final committed text (sent on confirm/send)
+  const windowBaseRef      = useRef('');  // text locked-in from all COMPLETED windows
+  const restartingRef      = useRef(false); // true during the async Voice.start() gap
+
 
   const scrollViewRef  = useRef(null);
   const lastMessageRef = useRef('');
@@ -134,36 +259,213 @@ const AIAssistant = ({ navigation, route }) => {
   // ─── Selectors ──────────────────────────────────────────────────────────────
   const {
     loading,
-    mediaLoading,
     messages,
     error,
     suggestions,
-    showSuggestions,
-    currentSessionId,
-  } = useSelector(mainChatbotSelectors.getChatData);
+    isTyping,
+  } = useSelector(chatSelectors.getChatData);
 
   const token      = useSelector(loginDataSelectors.getAccessToken);
   const isLogged   = useSelector((state) => state.loginData?.is_logged || false);
   const landlordId = useSelector(loginDataSelectors.getLandlordId);
+  const currentSessionId = useSelector((state) => state.ai?.currentSessionId || null);
 
-  const isAnyLoading = loading || mediaLoading;
+  const isAnyLoading = loading || isTyping;
 
   const getAvailableToken = useCallback(() => {
     if (!token || token === 'null') return null;
     return token;
   }, [token]);
+  
+    // ─── Helpers: stop Voice cleanly ─────────────────────────────────────────────
+  const stopVoice = useCallback(async () => {
+    isRecordingRef.current = false;
+    try { await Voice.stop(); } catch { /* ignore */ }
+  }, []);
+ 
+  const cancelVoice = useCallback(async () => {
+    isRecordingRef.current = false;
+    try { await Voice.cancel(); } catch { /* ignore */ }
+  }, []);
+
+  // ─── Voice: setup listeners ───────────────────────────────────────────────
+  useEffect(() => {
+
+    // Partial results → display only (windowBase + current partial).
+    // Never touches windowBaseRef or accumulatedTextRef.
+    Voice.onSpeechPartialResults = (e) => {
+      if (!isMountedRef.current) return;
+      const partial = e.value?.[0] || '';
+      setMessageText((windowBaseRef.current + ' ' + partial).trim());
+    };
+
+    // Final result for one recognition window.
+    // KEY FIX: we OVERWRITE (not append) the current window's contribution.
+    // windowBaseRef holds all previous windows; finalText is only THIS window.
+    Voice.onSpeechResults = (e) => {
+      if (!isMountedRef.current) return;
+      // Ignore any stale callbacks that fire during the async restart gap
+      if (restartingRef.current) return;
+
+      const finalText = e.value?.[0] || '';
+      if (!finalText) return;
+
+      // OVERWRITE within this window: windowBase + THIS window's final only
+      const newFull = (windowBaseRef.current + ' ' + finalText).trim();
+      accumulatedTextRef.current = newFull;
+      setMessageText(newFull);
+      isVoiceMessageRef.current = true;
+
+      if (isRecordingRef.current) {
+        // Commit this window's text before restarting
+        windowBaseRef.current  = newFull;
+        restartingRef.current  = true;   // block any duplicate fires during restart
+        Voice.start('en-US')
+          .then(() => { restartingRef.current = false; })
+          .catch(() => {
+            restartingRef.current  = false;
+            isRecordingRef.current = false;
+            setIsRecording(false);
+          });
+      }
+    };
+
+    // onSpeechEnd fires after onSpeechResults on most devices.
+    // We intentionally do NOT restart here — onSpeechResults already did.
+    // This prevents the double-restart that caused duplication.
+    Voice.onSpeechEnd = () => { /* no-op */ };
+
+    Voice.onSpeechError = (e) => {
+      if (!isMountedRef.current) return;
+      const code        = String(e.error?.code || '');
+      const silentCodes = ['5', '7', '203', '1110'];
+      if (isRecordingRef.current && !silentCodes.includes(code)) {
+        isRecordingRef.current = false;
+        restartingRef.current  = false;
+        setIsRecording(false);
+        Alert.alert('Voice Error', e.error?.message || 'Voice recognition failed');
+      }
+    };
+
+    return () => {
+      Voice.destroy().then(Voice.removeAllListeners).catch(() => {});
+    };
+  }, []);
+  
+  // ─── Tap mic: start recording ─────────────────────────────────────────────
+  const handleVoiceStart = useCallback(async () => {
+    if (isAnyLoading) return;
+
+    // STEP 1: Kill any running session so its stale callbacks stop firing
+    isRecordingRef.current = false;   // stops onSpeechResults/onSpeechEnd from restarting
+    restartingRef.current  = false;
+    try { await Voice.cancel(); } catch { /* ignore */ }
+
+    // STEP 2: Reset all text refs — now safe because old callbacks are blocked
+    accumulatedTextRef.current = '';
+    windowBaseRef.current      = '';
+    isVoiceMessageRef.current  = false;
+    setMessageText('');
+    setVoiceReady(false);
+
+    // STEP 3: Start fresh
+    try {
+      await Voice.start('en-US');
+      isRecordingRef.current = true;
+      setIsRecording(true);
+    } catch (e) {
+      Alert.alert('Voice Error', e.message || 'Could not start voice recognition');
+    }
+  }, [isAnyLoading]);
+
+  // ─── Tap ✓ (confirm): stop mic, put transcript in TextInput ──────────────
+  const handleVoiceConfirm = useCallback(async () => {
+    await stopVoice();
+    setIsRecording(false);
+ 
+    const transcript = accumulatedTextRef.current.trim();
+    if (transcript) {
+      setMessageText(transcript);
+      isVoiceMessageRef.current = true;
+      setVoiceReady(true);        // show normal input bar so user can review & send
+    } else {
+      setVoiceReady(false);       // nothing captured — go back to normal silently
+    }
+  }, [stopVoice]);
+ 
+  // ─── Tap ✕ (cancel): discard everything ──────────────────────────────────
+  const handleVoiceCancel = useCallback(async () => {
+    await cancelVoice();
+    accumulatedTextRef.current = '';
+    windowBaseRef.current      = '';
+    restartingRef.current      = false;
+    isVoiceMessageRef.current  = false;
+    setIsRecording(false);
+    setVoiceReady(false);
+    setMessageText('');
+  }, [cancelVoice]);
+ 
+ 
+  // ─── Voice: mic permission (Android only) ────────────────────────────────────
+  const requestMicPermission = useCallback(async () => {
+    if (Platform.OS !== 'android') return true;
+    try {
+      const result = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        {
+          title:   'Microphone Permission',
+          message: 'The AI Assistant needs microphone access to hear your voice.',
+          buttonPositive: 'Allow',
+        }
+      );
+      return result === PermissionsAndroid.RESULTS.GRANTED;
+    } catch {
+      return false;
+    }
+  }, []);
+ 
+  // ─── Voice: tap-to-start / tap-to-stop ───────────────────────────────────────
+  const handleVoicePress = useCallback(async () => {
+    if (isAnyLoading) return;
+ 
+    if (isRecording) {
+      try { await Voice.stop(); } catch { await Voice.cancel().catch(() => {}); }
+      setIsRecording(false);
+      return;
+    }
+ 
+    isVoiceMessageRef.current = false;
+    const hasPermission = await requestMicPermission();
+    if (!hasPermission) {
+      Alert.alert(
+        'Permission Required',
+        'Microphone access was denied. Please enable it in Settings.'
+      );
+      return;
+    }
+ 
+    try {
+      setMessageText('');
+      await Voice.start('en-US');
+      setIsRecording(true);
+    } catch (e) {
+      Alert.alert('Voice Error', e.message || 'Could not start voice recognition');
+    }
+  }, [isRecording, isAnyLoading, requestMicPermission]);
+ 
 
   // ─── Init ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     setIsComponentMounted(true);
     isMountedRef.current = true;
     if (!currentSessionId) {
-      dispatch(setSessionId(`session-${Date.now()}`));
+      dispatch(setCurrentSessionId(`session-${Date.now()}`));
     }
-    dispatch(clearError());
+    dispatch(clearChatError());
     return () => {
       isMountedRef.current = false;
       setIsComponentMounted(false);
+        Voice.destroy().catch(() => {});
     };
   }, [dispatch, currentSessionId]);
 
@@ -172,11 +474,13 @@ const AIAssistant = ({ navigation, route }) => {
     useCallback(() => {
       const shouldHide = route?.params?.hideSuggestions || false;
       if (messages.length === 0) {
-        dispatch(setShowSuggestionsAction(!shouldHide));
+        setShowSuggestions(!shouldHide);
         if (!shouldHide) loadSuggestions('getting started');
       }
-      return () => {};
-    }, [route?.params?.hideSuggestions, messages.length])
+return () => {
+        if (isRecordingRef.current) stopVoice();
+      };
+          }, [route?.params?.hideSuggestions, messages.length, isRecording])
   );
 
   // ─── Auto scroll ─────────────────────────────────────────────────────────────
@@ -200,7 +504,7 @@ const AIAssistant = ({ navigation, route }) => {
     if (!isMountedRef.current) return;
     try {
       const result = await dispatch(
-        getMainChatbotSuggestions({ context, sessionId: currentSessionId })
+        getAISuggestions({ context, sessionId: currentSessionId })
       ).unwrap();
       if (isMountedRef.current) {
         setLocalSuggestions(result.suggestions?.slice(0, 4) || []);
@@ -208,24 +512,43 @@ const AIAssistant = ({ navigation, route }) => {
     } catch {
       if (isMountedRef.current) {
         setLocalSuggestions([
-          'What can tenants ask about?',
-          'How do I submit a maintenance request?',
-          'What is the lease policy?',
-          'Tell me about rent payments',
+          "My sink is leaking",
+          "Toilet won't flush",
+          "There's a crack in the wall",
+          "How do I fix a dripping tap?",
         ]);
       }
     }
   }, [dispatch, currentSessionId]);
 
   // ─── Image picker ─────────────────────────────────────────────────────────────
+  /**
+   * Store uri + base64 + metadata from the picker.
+   * includeBase64: true avoids a second RNFS disk read inside the thunk.
+   */
   const handleImageResponse = useCallback((response) => {
     if (response.didCancel) return;
-    if (response.error) { Alert.alert('Error', 'Failed to pick image'); return; }
-    if (response.assets?.[0]) {
-      const asset = response.assets[0];
-      setSelectedImage({ uri: asset.uri, type: asset.type, fileName: asset.fileName });
+    if (response.errorCode) {
+      Alert.alert('Image Error', response.errorMessage || 'Failed to pick image');
+      return;
     }
+    const asset = response.assets?.[0];
+    if (!asset) return;
+    setSelectedImage({
+      uri:      asset.uri,
+      base64:   asset.base64  || null,   // provided when includeBase64: true
+      type:     asset.type    || 'image/jpeg',
+      fileName: asset.fileName || `photo-${Date.now()}.jpg`,
+    });
   }, []);
+
+  const IMAGE_PICKER_OPTIONS = {
+    mediaType:    'photo',
+    quality:      0.5,
+    maxWidth:     800,
+    maxHeight:    800,
+    includeBase64: true,   // ✅ pre-fetch base64 so the thunk skips RNFS
+  };
 
   const handleImagePicker = useCallback(() => {
     Alert.alert('Select Image', 'Choose an image source', [
@@ -233,16 +556,13 @@ const AIAssistant = ({ navigation, route }) => {
       {
         text: 'Camera',
         onPress: () => launchCamera(
-          { mediaType: 'photo', quality: 0.5, maxWidth: 800, maxHeight: 800, saveToPhotos: true },
+          { ...IMAGE_PICKER_OPTIONS, saveToPhotos: true },
           handleImageResponse
         ),
       },
       {
         text: 'Gallery',
-        onPress: () => launchImageLibrary(
-          { mediaType: 'photo', quality: 0.5, maxWidth: 800, maxHeight: 800 },
-          handleImageResponse
-        ),
+        onPress: () => launchImageLibrary(IMAGE_PICKER_OPTIONS, handleImageResponse),
       },
     ]);
   }, [handleImageResponse]);
@@ -252,10 +572,11 @@ const AIAssistant = ({ navigation, route }) => {
   // ─── Refresh properties if AI updated something ───────────────────────────────
   const refreshPropertiesIfUpdated = useCallback((aiResponse) => {
     if (!aiResponse || !landlordId) return;
-    const keywords = ['updated', 'changed', 'modified', 'set to', 'availability',
-      'rent', 'monthly_rent', 'price', 'property has been', 'successfully updated'];
-    const lower = aiResponse.toLowerCase();
-    if (keywords.some((kw) => lower.includes(kw))) {
+    const keywords = [
+      'updated', 'changed', 'modified', 'set to', 'availability',
+      'rent', 'monthly_rent', 'price', 'property has been', 'successfully updated',
+    ];
+    if (keywords.some((kw) => aiResponse.toLowerCase().includes(kw))) {
       const t = getAvailableToken();
       if (t) dispatch(getLandlordProperties({ landlordId, token: t }));
     }
@@ -263,38 +584,65 @@ const AIAssistant = ({ navigation, route }) => {
 
   // ─── Send message ─────────────────────────────────────────────────────────────
   const handleSendMessage = useCallback(async (messageOverride = null) => {
+  
+
     const trimmedMessage = (messageOverride || messageText).trim();
 
     if (!trimmedMessage && !selectedImage) {
       Alert.alert('Empty Message', 'Please enter a message or select an image.');
       return;
     }
-
     if (trimmedMessage === lastMessageRef.current && !selectedImage) return;
-
     if (isAnyLoading) return;
+
+    // authFetch injects the token automatically — we only check it to gate the UI
+    if (!getAvailableToken()) {
+      Alert.alert('Not Logged In', 'Please log in to use the AI Assistant.');
+      return;
+    }
 
     let sessionIdToUse = currentSessionId;
     if (!sessionIdToUse) {
       sessionIdToUse = `session-${Date.now()}`;
-      dispatch(setSessionId(sessionIdToUse));
+      dispatch(setCurrentSessionId(sessionIdToUse));
     }
 
     const currentImage = selectedImage;
+      const wasVoice     = isVoiceMessageRef.current && !messageOverride;
     if (!messageOverride) setMessageText('');
     setSelectedImage(null);
+        isVoiceMessageRef.current = false;
+        accumulatedTextRef.current = '';
+        windowBaseRef.current      = '';
+        restartingRef.current      = false;
     lastMessageRef.current = trimmedMessage;
-    dispatch(setShowSuggestionsAction(false));
+    setShowSuggestions(false);
 
     try {
-      // ✅ No token passed — API is open (no Authorization header)
-      const params = {
-        message:   trimmedMessage,
-        sessionId: sessionIdToUse,
-        // imageUrl: currentImage?.uri  ← add when backend supports it
-      };
+      let result;
 
-      const result = await dispatch(sendMainChatMessage(params)).unwrap();
+      if (currentImage?.uri) {
+     
+        result = await dispatch(
+          sendChatMessageWithImage({
+            message:     trimmedMessage || undefined,
+            imageUri:    currentImage.uri,
+            imageBase64: currentImage.base64 || undefined,
+            sessionId:   sessionIdToUse,
+            ocrHint:     trimmedMessage || undefined,
+            captionHint: trimmedMessage || undefined,
+          })
+        ).unwrap();
+      } else {
+       
+        result = await dispatch(
+          sendChatMessageNew({
+            message:   trimmedMessage,
+            sessionId: sessionIdToUse,
+              isVoice:   wasVoice,
+          })
+        ).unwrap();
+      }
 
       if (result?.response && isMountedRef.current) {
         refreshPropertiesIfUpdated(result.response);
@@ -302,41 +650,45 @@ const AIAssistant = ({ navigation, route }) => {
       setTimeout(() => { lastMessageRef.current = ''; }, 1000);
 
     } catch (err) {
+      // Restore input so the user can retry without retyping
       if (!messageOverride) setMessageText(trimmedMessage);
       if (currentImage) setSelectedImage(currentImage);
       lastMessageRef.current = '';
+        isVoiceMessageRef.current = false;
 
-      const errMsg = typeof err === 'string'
-        ? err
-        : (err?.message || err?.error || 'Failed to send message. Please try again.');
+      const errMsg =
+        typeof err === 'string'
+          ? err
+          : err?.message || err?.error || 'Failed to send. Please try again.';
       Alert.alert('Message Failed', errMsg, [{ text: 'OK' }]);
     }
   }, [
-    messageText, selectedImage, currentSessionId, isAnyLoading,
-    dispatch, navigation, refreshPropertiesIfUpdated,
+    messageText, selectedImage, currentSessionId, isAnyLoading,  isAnyLoading,
+    dispatch, getAvailableToken, refreshPropertiesIfUpdated,
   ]);
 
   const handleSuggestionPress = useCallback((s) => handleSendMessage(s), [handleSendMessage]);
 
   // ─── Clear chat ───────────────────────────────────────────────────────────────
-  const handleClearChat = useCallback(() => {
+   const handleClearChat = useCallback(() => {
     Alert.alert('Clear Chat', 'Are you sure you want to clear all messages?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Clear', style: 'destructive',
         onPress: () => {
-          dispatch(clearMessages());
-          lastMessageRef.current = '';
-          const shouldHide = route?.params?.hideSuggestions || false;
-          dispatch(setShowSuggestionsAction(!shouldHide));
+          dispatch(clearChatMessages());
+          lastMessageRef.current     = '';
+          accumulatedTextRef.current = '';
+          isVoiceMessageRef.current  = false;
+          setVoiceReady(false);
+          setShowSuggestions(!(route?.params?.hideSuggestions || false));
           setSelectedImage(null);
           setMessageText('');
-          if (!shouldHide) setTimeout(() => loadSuggestions('getting started'), 0);
+          if (!(route?.params?.hideSuggestions)) setTimeout(() => loadSuggestions('getting started'), 0);
         },
       },
     ]);
   }, [dispatch, loadSuggestions, route?.params?.hideSuggestions]);
-
   // ─── Suggestions ─────────────────────────────────────────────────────────────
   const renderSuggestions = useMemo(() => {
     if (!showSuggestions || localSuggestions.length === 0 || messages.length > 0) return null;
@@ -357,22 +709,25 @@ const AIAssistant = ({ navigation, route }) => {
 
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
-    <Container>
+    <Container scroll={false} noPaddingBottom>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? hp(10) : 0}>
 
-        {messages.length > 0 && (
-          <TouchableOpacity style={styles.clearButton} onPress={handleClearChat}>
-            <Text style={styles.clearButtonText}>Clear</Text>
+        {/* Header */}
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <AppIcon name={icons.arrowBack} size={22} />
           </TouchableOpacity>
-        )}
-        
-        <TouchableOpacity onPress={() => navigation.navigate('WebhookLogMonitor')}>
-  <Text>SMS Webhook Monitor</Text>
-</TouchableOpacity>
+          {messages.length > 0 && (
+            <TouchableOpacity style={styles.clearButton} onPress={handleClearChat}>
+              <Text style={styles.clearButtonText}>Clear</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
+        {/* Chat area */}
         <ScrollView
           ref={scrollViewRef}
           style={styles.chatContainer}
@@ -380,7 +735,7 @@ const AIAssistant = ({ navigation, route }) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">
 
-          {/* Welcome */}
+          {/* Welcome screen */}
           {messages.length === 0 && !isAnyLoading && (
             <View style={styles.welcomeContainer}>
               <View style={styles.aiIconContainer}>
@@ -390,12 +745,12 @@ const AIAssistant = ({ navigation, route }) => {
               </View>
               <Text style={styles.welcomeTitle}>Hello! I'm your{'\n'}AI Assistant.</Text>
               <Text style={styles.welcomeDescription}>
-                I can assist with text-based questions and provide{'\n'}quick, accurate insights.
+                Ask me anything — or tap the image icon to send {'\n'}a photo and I'll analyse it for you.
               </Text>
             </View>
           )}
 
-          {/* Messages */}
+          {/* Message list */}
           {messages.map((msg) => (
             <MessageItem key={msg.id} msg={msg} />
           ))}
@@ -404,7 +759,9 @@ const AIAssistant = ({ navigation, route }) => {
           {isAnyLoading && (
             <View style={[styles.messageContainer, styles.botMessage, styles.typingContainer]}>
               <ActivityIndicator size="small" color={Colors.primary} />
-              <Text style={styles.typingText}>AI is thinking…</Text>
+              <Text style={styles.typingText}>
+                {selectedImage ? 'Analysing image…' : 'AI is thinking…'}
+              </Text>
             </View>
           )}
 
@@ -412,36 +769,79 @@ const AIAssistant = ({ navigation, route }) => {
           {renderSuggestions}
         </ScrollView>
 
-        {/* Image preview */}
+        {/* ── Image preview strip ──────────────────────────────────────────── */}
         {selectedImage && (
           <View style={styles.imagePreviewContainer}>
-            <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} resizeMode="cover" />
+            <Image
+              source={{ uri: selectedImage.uri }}
+              style={styles.imagePreview}
+              resizeMode="cover"
+            />
+            {/* Overlay showing file name so the user knows what's attached */}
+            <Text style={styles.imageFileName} numberOfLines={1}>
+              {selectedImage.fileName || 'photo'}
+            </Text>
             <TouchableOpacity style={styles.removeImageButton} onPress={removeSelectedImage}>
               <AppIcon name={icons.close} size={hp(1.5)} color={Colors.white} />
             </TouchableOpacity>
           </View>
         )}
+        
+        {/* ── RECORDING BAR — replaces the input bar while mic is active ── */}
+        {isRecording ? (
+          <View style={styles.recordingSection}>
+            {/* ✕ Cancel */}
+            <TouchableOpacity style={styles.voiceActionBtn} onPress={handleVoiceCancel}>
+              <Text style={styles.voiceCancelIcon}>✕</Text>
+            </TouchableOpacity>
+ 
+            {/* Waveform */}
+            <View style={styles.waveformBox}>
+              <VoiceWaveform />
+            </View>
+ 
+            {/* ✓ Confirm */}
+            <TouchableOpacity style={[styles.voiceActionBtn, styles.voiceConfirmBtn]} onPress={handleVoiceConfirm}>
+              <Text style={styles.voiceConfirmIcon}>✓</Text>
+            </TouchableOpacity>
+          </View>
+ 
+        ) : (
 
-        {/* Input bar */}
+    
         <View style={styles.inputSection}>
           <View style={styles.inputBox}>
             <TextInput
               style={styles.textInput}
               value={messageText}
               onChangeText={setMessageText}
-              placeholder={selectedImage ? 'Describe what you see...' : 'Type your message...'}
+              placeholder={
+                selectedImage
+                  ? 'Describe the issue (or leave blank)…'
+                  : 'Type your message…'
+              }
               placeholderTextColor="#555"
               multiline
               maxLength={1000}
               editable={!isAnyLoading}
             />
-            <TouchableOpacity style={styles.iconButton} onPress={() => {}} disabled={isAnyLoading}>
-              <AppIcon name={icons.aiVoice} height={hp(3)} width={hp(3)} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={handleImagePicker} disabled={isAnyLoading}>
+            {/* Voice button (no-op placeholder) */}
+           <TouchableOpacity
+  style={[styles.iconButton]}
+  onPress={handleVoiceStart}
+  disabled={isAnyLoading}>
+    <AppIcon name={icons.aiVoice} height={hp(3)} width={hp(3)} />
+</TouchableOpacity>
+            {/* Image picker button */}
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={handleImagePicker}
+              disabled={isAnyLoading}>
               <AppIcon name={icons.aiImage} height={hp(3)} width={hp(3)} />
             </TouchableOpacity>
           </View>
+
+          {/* Send button — enabled when there is text OR an image attached */}
           <TouchableOpacity
             style={[
               styles.sendButton,
@@ -452,6 +852,8 @@ const AIAssistant = ({ navigation, route }) => {
             <AppIcon name={icons.send} height={hp(3)} width={hp(3)} />
           </TouchableOpacity>
         </View>
+        
+          )}
 
       </KeyboardAvoidingView>
     </Container>
@@ -460,16 +862,19 @@ const AIAssistant = ({ navigation, route }) => {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container:    { flex: 1 },
+  container:     { flex: 1 },
   chatContainer: { flex: 1 },
-  chatContent:  { flexGrow: 1, paddingHorizontal: wp(4), paddingVertical: hp(2) },
+  chatContent:   { flexGrow: 1, paddingHorizontal: wp(4), paddingVertical: hp(2) },
 
+  headerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: wp(4), paddingVertical: hp(1),
+  },
   clearButton: {
-    alignSelf: 'flex-end', marginRight: wp(4), marginTop: hp(0.5),
     paddingHorizontal: wp(3), paddingVertical: hp(0.6),
     backgroundColor: 'rgba(214,69,69,0.1)', borderRadius: wp(4),
   },
-  clearButtonText: { fontSize: hp(1.6), color: '#D64545', fontWeight: '600' },
+  clearButtonText: { fontSize: hp(1.6), color: Colors.black, fontWeight: '600' },
 
   welcomeContainer: {
     alignItems: 'center', paddingHorizontal: wp(6),
@@ -496,47 +901,69 @@ const styles = StyleSheet.create({
     borderRadius: wp(4), elevation: 2, shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2,
   },
-  userMessage: { alignSelf: 'flex-end', backgroundColor: Colors.white },
-  botMessage: {
+  userMessage:  { alignSelf: 'flex-end', backgroundColor: Colors.white },
+  botMessage:   {
     alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.95)',
     borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)',
   },
   errorMessage: { backgroundColor: '#ffebee', borderColor: '#ffcdd2' },
   sourceIndicator: { fontSize: hp(1.4), color: Colors.gray, marginBottom: hp(0.5), fontWeight: '600' },
-  messageText: { fontSize: hp(2), lineHeight: hp(2.6) },
+  messageText: { fontSize: hp(1.6), lineHeight: hp(2.6) },
   timestamp:   { fontSize: hp(1.4), marginTop: hp(0.5), opacity: 0.7 },
-
-  // ✅ Citations
-  citationsContainer: {
-    marginTop: hp(1), paddingTop: hp(0.8),
-    borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)',
-  },
-  citationsLabel: { fontSize: hp(1.3), color: Colors.gray, fontWeight: '600', marginBottom: hp(0.4) },
-  citationItem:   { fontSize: hp(1.3), color: Colors.gray, lineHeight: hp(2) },
 
   messageImageContainer: { marginBottom: hp(1), borderRadius: wp(2), overflow: 'hidden' },
   messageImage:          { width: wp(50), height: wp(35), borderRadius: wp(2) },
 
   typingContainer: { flexDirection: 'row', alignItems: 'center', paddingVertical: hp(2) },
-  typingText:      { fontSize: hp(2), color: Colors.gray, fontStyle: 'italic', marginLeft: wp(2) },
+  typingText:      { fontSize: hp(1.6), color: Colors.gray, fontStyle: 'italic', marginLeft: wp(2) },
 
   suggestionsContainer: { marginTop: hp(-3), paddingHorizontal: wp(2) },
   suggestionsTitle: { fontSize: hp(1.8), fontWeight: '600', color: Colors.black, marginBottom: hp(1.5) },
   suggestionButton: {
     backgroundColor: 'rgba(255,255,255,0.95)', borderWidth: 1.5, borderColor: Colors.black,
     borderRadius: wp(6), paddingHorizontal: wp(4), paddingVertical: hp(1.5),
-    marginVertical: hp(0.5), elevation: 1, shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2,
+    marginVertical: hp(0.5), elevation: 1,
   },
   suggestionText: { color: Colors.primary, fontSize: hp(1.8), textAlign: 'left' },
 
-  imagePreviewContainer: { margin: wp(4), position: 'relative', alignSelf: 'flex-start' },
-  imagePreview:          { width: wp(25), height: wp(25), borderRadius: wp(3), backgroundColor: '#f0f0f0' },
+  // Image preview strip (above the input bar)
+  imagePreviewContainer: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: wp(4), marginBottom: hp(1),
+    backgroundColor: '#f8f8f8', borderRadius: wp(3),
+    padding: wp(2), borderWidth: 1, borderColor: '#ddd',
+  },
+  imagePreview:   { width: wp(14), height: wp(14), borderRadius: wp(2) },
+  imageFileName:  {
+    flex: 1, fontSize: hp(1.6), color: Colors.gray,
+    marginHorizontal: wp(2),
+  },
   removeImageButton: {
-    position: 'absolute', top: -hp(1), right: -wp(2), backgroundColor: '#ff4444',
-    borderRadius: hp(1.5), width: hp(3), height: hp(3),
+    backgroundColor: '#ff4444', borderRadius: hp(1.5),
+    width: hp(3), height: hp(3),
     justifyContent: 'center', alignItems: 'center', elevation: 3,
   },
+  
+  // Recording bar
+  recordingSection: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: wp(4), marginBottom: hp(1.5),
+    height: hp(7),
+    backgroundColor: '#fff', borderRadius: wp(8),
+    borderWidth: 1, borderColor: '#EBAFAF',
+    paddingHorizontal: wp(2),
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+  },
+  waveformBox:      { flex: 1, height: '100%', justifyContent: 'center' },
+  voiceActionBtn:   {
+    width: hp(4.5), height: hp(4.5), borderRadius: hp(2.25),
+    backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center',
+  },
+  voiceConfirmBtn:  { backgroundColor: '#D64545' },
+  voiceCancelIcon:  { fontSize: hp(2), color: '#555', fontWeight: '700' },
+  voiceConfirmIcon: { fontSize: hp(2.2), color: '#fff', fontWeight: '700' },
+ 
 
   inputSection: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -549,11 +976,11 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  textInput:          { flex: 1, fontSize: hp(2), color: '#000', paddingRight: wp(2), maxHeight: hp(10) },
+  textInput:          { flex: 1, fontSize: hp(1.6), color: '#000', paddingRight: wp(2), maxHeight: hp(10) },
   iconButton:         { marginLeft: wp(1), paddingHorizontal: wp(1.5) },
   sendButton: {
-    marginLeft: wp(2), width: hp(6), height: hp(6), borderRadius: hp(3),
-    backgroundColor: '#D64545', justifyContent: 'center', alignItems: 'center',
+    marginLeft: wp(2), width: hp(5), height: hp(5), borderRadius: hp(3),
+    backgroundColor: Colors.red, justifyContent: 'center', alignItems: 'center',
     shadowColor: '#D64545', shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25, shadowRadius: 4, elevation: 5,
   },

@@ -9,9 +9,10 @@ import {
   RefreshControl,
   Image,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, VStack, HStack, Badge, Spinner, Pressable } from 'native-base';
+
 import Toast from 'react-native-simple-toast';
 import { useNavigation } from '@react-navigation/native';
 import {
@@ -24,7 +25,8 @@ import { AppIcon } from '../../components/AppIcon';
 import { icons } from '../../Assets';
 import { getFontFamily } from '../../utils';
 import { Colors } from '../../Theme';
-import { getLandlordTenants } from '../../Redux/Tenants/services';
+
+import { getPropertyTenants } from '../../Redux/Tenants/services';
 import { tenantsSelectors } from '../../Redux/Tenants/tenantsSlice';
 
 const TenantManagement = () => {
@@ -34,6 +36,12 @@ const TenantManagement = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
+  
+  useEffect(() => {
+  if (tenants.length > 0) {
+    console.log('[DEBUG] First tenant:', JSON.stringify(tenants[0], null, 2));
+  }
+}, [tenants]);
 
   const tenantsData = useSelector(tenantsSelectors.getTenantsData) || {};
   const {
@@ -51,13 +59,13 @@ const TenantManagement = () => {
 
   useEffect(() => {
     if (isAuthenticated) {
-      dispatch(getLandlordTenants({ landlordId, token: authToken }));
+      dispatch(getPropertyTenants({ landlordId, token: authToken }));
     }
   }, [dispatch, landlordId, authToken, isAuthenticated]);
 
   const handleRefresh = useCallback(() => {
     if (isAuthenticated) {
-      dispatch(getLandlordTenants({ landlordId, token: authToken }));
+      dispatch(getPropertyTenants({ landlordId, token: authToken }));
     } else {
       Toast.show('Please login again');
     }
@@ -116,55 +124,65 @@ const TenantManagement = () => {
     }
   };
 
-  const renderTenantCard = ({ item }) => {
-    const status = item?.status || item?.payment_status || 'Pending';
-    const tenantName = item?.name || item?.tenant_name || `${item?.firstName || ''} ${item?.lastName || ''}`.trim();
-    const address = item?.address || item?.property_address || item?.property?.address || 'No address';
-    const avatar = item?.avatar || item?.profile_image || item?.photo || null;
+ const getInitials = (firstName, lastName) => {
+  return `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
+};
 
-    return (
-      <TouchableOpacity
-        style={styles.tenantCard}
-        onPress={() => {
-          // Navigate to tenant details if needed
-          Toast.show(`Viewing ${tenantName}`);
-        }}
-      >
-        <HStack alignItems="center" space={3}>
-          {avatar ? (
-            <Image source={{ uri: avatar }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>
-                {tenantName.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
+const renderTenantCard = ({ item }) => {
+  const firstName = item?.tenant?.firstName || '';
+  const lastName  = item?.tenant?.lastName || '';
 
-          <VStack flex={1}>
+  const tenantName = item?.tenant
+    ? `${firstName} ${lastName}`.trim()
+    : 'No Tenant Assigned';
+
+  const tenantId = item?.tenant?.id || '';
+  const initials = getInitials(firstName, lastName);
+
+  const address = `${item?.property?.streetAddress || ''}, ${item?.property?.city || ''} ${item?.property?.state || ''} ${item?.property?.zipCode || ''}`.trim();
+
+  const status = item?.leaseStatus || item?.status || 'Pending';
+
+  return (
+    <TouchableOpacity
+      style={styles.tenantCard}
+      onPress={() => Toast.show(`Viewing ${tenantName}`)}
+    >
+      {/* Row */}
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+
+        {/* Avatar */}
+        <View style={styles.avatarPlaceholder}>
+          <Text style={styles.avatarText}>{initials || 'NA'}</Text>
+        </View>
+
+        {/* Content */}
+        <View style={{ flex: 1, marginLeft: 10 }}>
+
+          {/* Name + Status in SAME LINE */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={styles.tenantName}>{tenantName}</Text>
-            <Text style={styles.tenantAddress} numberOfLines={1}>
-              {address}
-            </Text>
-          </VStack>
 
-          <Badge
-            bg={getStatusColor(status)}
-            rounded="md"
-            px={3}
-            py={1}
-            _text={{
-              fontSize: 'xs',
-              fontWeight: 'bold',
-              color: 'white',
-            }}
-          >
-            {status}
-          </Badge>
-        </HStack>
-      </TouchableOpacity>
-    );
-  };
+            {/* Badge Replacement */}
+            <View style={[styles.badge, { backgroundColor: getStatusColor(status) }]}>
+              <Text style={styles.badgeText}>{status}</Text>
+            </View>
+          </View>
+
+          {/* Tenant ID */}
+          <Text style={styles.tenantId}>
+            ID: {tenantId}
+          </Text>
+
+          {/* Address */}
+          <Text style={styles.tenantAddress} numberOfLines={2}>
+            {address}
+          </Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
 
   const filterOptions = [
     { key: 'all', label: 'All', count: statusCounts.all },
@@ -190,124 +208,154 @@ const TenantManagement = () => {
   }
 
   return (
-    <Container scroll={false}>
-    
-          {/* Header */}
-      <HStack
-     
-        px={4}
-        py={3}
-        alignItems="center"
-        justifyContent="flex-start"
-      >
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-                       <AppIcon name={icons.arrowBack} size={24} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>All Tenants</Text>
-        <TouchableOpacity onPress={() => setShowFilterMenu(!showFilterMenu)}>
-        
-        </TouchableOpacity>
-      </HStack>
+  <Container scroll={false}>
 
-      {/* Filter Menu */}
-      {showFilterMenu && (
-        <Box bg="white" shadow={2} p={2}>
-          {filterOptions.map(option => (
-            <Pressable
-              key={option.key}
-              onPress={() => {
-                setSelectedFilter(option.key);
-                setShowFilterMenu(false);
-              }}
-              style={styles.filterOption}
-            >
-              <HStack justifyContent="space-between" alignItems="center">
-                <Text
-                  style={[
-                    styles.filterLabel,
-                    selectedFilter === option.key && styles.filterLabelActive,
-                  ]}
-                >
-                  {option.label} ({option.count})
-                </Text>
-               {selectedFilter === option.key && (
-  <AppIcon name={icons.ok} size={18} color="#E53935" />
-)}
+  {/* Header */}
+  <View style={styles.headerContainer}>
+    <TouchableOpacity onPress={() => navigation.goBack()}>
+      <AppIcon name={icons.arrowBack} size={24} />
+    </TouchableOpacity>
 
-              </HStack>
-            </Pressable>
-          ))}
-        </Box>
-      )}
+    <Text style={styles.headerTitle}>All Tenants</Text>
 
-      {/* Search Bar */}
-      <Box bg="white" px={4} py={3}>
-        <HStack
-          bg="#F5F5F5"
-          borderRadius={8}
-          px={3}
-          py={2}
-          alignItems="center"
+    <TouchableOpacity onPress={() => setShowFilterMenu(!showFilterMenu)}>
+      {/* You can add filter icon here if needed */}
+    </TouchableOpacity>
+  </View>
+
+  {/* Filter Menu */}
+  {showFilterMenu && (
+    <View style={styles.filterMenu}>
+      {filterOptions.map(option => (
+        <TouchableOpacity
+          key={option.key}
+          onPress={() => {
+            setSelectedFilter(option.key);
+            setShowFilterMenu(false);
+          }}
+          style={styles.filterOption}
         >
+          <View style={styles.filterRow}>
+            <Text
+              style={[
+                styles.filterLabel,
+                selectedFilter === option.key && styles.filterLabelActive,
+              ]}
+            >
+              {option.label} ({option.count})
+            </Text>
 
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search tenants..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholderTextColor="#999"
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-        <AppIcon name={icons.close} size={18} />
-
-            </TouchableOpacity>
-          )}
-        </HStack>
-      </Box>
-
-      {/* Tenants List */}
-      <FlatList
-        data={filteredTenants}
-        keyExtractor={(item, index) =>
-          String(item?.tenant_id || item?.id || item?.ID || index)
-        }
-        renderItem={renderTenantCard}
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={handleRefresh}
-            tintColor="#E53935"
-            colors={['#E53935']}
-          />
-        }
-        contentContainerStyle={styles.listContainer}
-        ListEmptyComponent={
-          <Box alignItems="center" justifyContent="center" py={10}>
-            {loading ? (
-              <>
-                <Spinner color="#E53935" size="lg" />
-                <Text style={styles.loadingText}>Loading tenants...</Text>
-              </>
-            ) : (
-              <>
-            
-                <Text style={styles.emptyTitle}>No tenants found</Text>
-                <Text style={styles.emptySubtitle}>
-                  {searchQuery || selectedFilter !== 'all'
-                    ? 'Try adjusting your filters'
-                    : 'No tenants available'}
-                </Text>
-              </>
+            {selectedFilter === option.key && (
+              <AppIcon name={icons.ok} size={18} color="#E53935" />
             )}
-          </Box>
-        }
+          </View>
+        </TouchableOpacity>
+      ))}
+    </View>
+  )}
+
+  {/* Search Bar */}
+  <View style={styles.searchContainer}>
+    <View style={styles.searchBox}>
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Search tenants..."
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        placeholderTextColor="#999"
       />
-    </Container>
+
+      {searchQuery.length > 0 && (
+        <TouchableOpacity onPress={() => setSearchQuery('')}>
+          <AppIcon name={icons.close} size={18} />
+        </TouchableOpacity>
+      )}
+    </View>
+  </View>
+
+  {/* Tenants List */}
+  <FlatList
+    data={filteredTenants}
+    keyExtractor={(item, index) =>
+      String(item?.tenant_id || item?.id || item?.ID || index)
+    }
+    renderItem={renderTenantCard}
+    refreshControl={
+      <RefreshControl
+        refreshing={loading}
+        onRefresh={handleRefresh}
+        tintColor="#E53935"
+        colors={['#E53935']}
+      />
+    }
+    contentContainerStyle={styles.listContainer}
+    ListEmptyComponent={
+      <View style={styles.emptyContainer}>
+        {loading ? (
+          <>
+            <ActivityIndicator size="large" color="#E53935" />
+            <Text style={styles.loadingText}>Loading tenants...</Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.emptyTitle}>No tenants found</Text>
+            <Text style={styles.emptySubtitle}>
+              {searchQuery || selectedFilter !== 'all'
+                ? 'Try adjusting your filters'
+                : 'No tenants available'}
+            </Text>
+          </>
+        )}
+      </View>
+    }
+  />
+
+</Container>
   );
 };
 
+
 const styles = StyleSheet.create({
+
+headerContainer: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  paddingHorizontal: 16,
+  paddingVertical: 12,
+},
+
+filterMenu: {
+  backgroundColor: '#fff',
+  padding: 8,
+  elevation: 3,
+},
+
+filterRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+},
+
+searchContainer: {
+  backgroundColor: '#fff',
+  paddingHorizontal: 16,
+  paddingVertical: 12,
+},
+
+searchBox: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: '#F5F5F5',
+  borderRadius: 8,
+  paddingHorizontal: 10,
+  paddingVertical: 6,
+},
+
+emptyContainer: {
+  alignItems: 'center',
+  justifyContent: 'center',
+  paddingVertical: 40,
+},
   headerTitle: {
     fontSize: wp(5),
     fontFamily: getFontFamily('bold'),

@@ -1,8 +1,9 @@
 export const Config = {
 
-Base_url :- http://54.234.140.239
 
 
+ Base_url: 'https://api.dwellproperties.ai/api',
+NODE_API_BASE_URL: 'https://api.dwellproperties.ai/api',
   API_URL: 'https://3hc254p0l3.execute-api.us-east-1.amazonaws.com/prod/auth',
   COGNITO_REGION: 'us-east-1',
   COGNITO_CLIENT_ID: '4vq7alk8e8uu9ajt3hh4tassk2',

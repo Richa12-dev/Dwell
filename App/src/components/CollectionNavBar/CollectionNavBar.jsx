@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useCallback} from 'react';
 import {
   StyleSheet,
   Text,
@@ -8,7 +8,7 @@ import {
   Platform,
   StatusBar,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import Dialog from 'react-native-dialog';
 import {
   heightPercentageToDP as hp,
@@ -21,12 +21,29 @@ import {loginDataSelectors} from '../../Redux/Login/loginSlice';
 import {logout} from '../../Redux/Login/services';
 import {Colors} from '../../Theme';
 import {getFontFamily} from '../../utils';
+import {
+  notificationSelectors,
+  getUnreadCount,
+} from '../../Redux/NotificationServices/notificationSlice';
 
 const CollectionNavBar = () => {
   const navigation = useNavigation();
   const dispatch = useDispatch();
   const {token} = useSelector(loginDataSelectors.getData);
   const [showDialog, setShowDialog] = useState(false);
+  
+  // Get unread count from Redux store
+  const unreadCount = useSelector(notificationSelectors.selectUnreadCount);
+  const hasUnread = unreadCount > 0;
+ 
+  // Re-fetch unread count every time screen comes into focus
+  // So when user reads notifications and comes back, the dot disappears
+  useFocusEffect(
+    useCallback(() => {
+      dispatch(getUnreadCount());
+    }, [dispatch]),
+  );
+ 
 
   const handleLogout = async () => {
     try {
@@ -60,8 +77,8 @@ const CollectionNavBar = () => {
             <TouchableOpacity
               onPress={() => navigation.navigate('TenantNotification')}
               style={styles.iconButton}>
-              <AppIcon
-                name={icons.bellIcon}
+            <AppIcon
+                name={hasUnread ? icons.bellIcon : icons.bell}
                 size={wp('7')}
                 color={'#292929'}
               />

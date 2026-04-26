@@ -29,62 +29,46 @@ const LandlordSupport = ({ navigation }) => {
   });
 
   // ✅ Get landlord data from Redux
-  const loginData = useSelector(s => s.loginData || {});
-  const token = loginData?.idToken || loginData?.accessToken;
-  const landlord_id = loginData?.userData?.sub || loginData?.user?.sub;
+const loginData   = useSelector(s => s.loginData || {});
+const token       = loginData?.accessToken || loginData?.token;
+const landlord_id = loginData?.userData?.landlordId;
+
+// Add this log to confirm
+console.log('🔑 landlord_id resolved:', landlord_id);
+console.log('🔑 loginData.user:', loginData?.user);
 
   const { requests, loading, totalRequests, openRequests, closedRequests } = useSelector(maintenanceSelectors.getMaintenanceData);
   const jobs = useSelector(contractorSelectors.getAllJobs);
 
-  useEffect(() => {
-    // ✅ Fetch maintenance requests for landlord
-    if (token && landlord_id) {
-      dispatch(getMaintenanceRequests({
-        landlord_id: landlord_id,
-        token: token,
-      }));
-    }
-  }, [dispatch, token, landlord_id]);
+  // In LandlordSupport.js useEffect
+useEffect(() => {
+  console.log('🚀 Fetching with landlord_id:', landlord_id);  // must NOT be undefined
+  if (token && landlord_id) {
+    dispatch(getMaintenanceRequests({
+      landlord_id: landlord_id,
+      token: token,
+    }));
+  }
+}, [dispatch, token, landlord_id]);
 
-  // ✅ FIXED: Improved getDisplayStatus to check multiple status indicators
   const getDisplayStatus = (item) => {
-    console.log('🔍 Checking status for ticket:', item.ticket_id, {
-      main_status: item.status,
-      assignment_state: item.contractor_assignment?.state,
-      completed_at: item.completed_at,
-      completion_notes: item.completion_notes,
-    });
-
-    // ✅ Priority 1: Check contractor_assignment.state for COMPLETED
-    if (item.contractor_assignment?.state?.toUpperCase() === 'COMPLETED') {
-      return 'Resolved';
-    }
-
-    // ✅ Priority 2: Check main status field
-    const mainStatus = item.status?.toLowerCase();
-    if (mainStatus === 'completed' || mainStatus === 'closed' || mainStatus === 'resolved') {
-      return 'Resolved';
-    }
-
-    // ✅ Priority 3: Check for completion indicators
-    if (item.completed_at || item.completion_notes) {
-      return 'Resolved';
-    }
-
-    // ✅ Check for In Progress
-    if (item.contractor_assignment?.state?.toUpperCase() === 'ACCEPTED' ||
-        item.contractor_assignment?.state?.toUpperCase() === 'IN_PROGRESS') {
-      return 'In Progress';
-    }
-
-    // ✅ Check for New Request
-    if (mainStatus === 'open' || mainStatus === 'new') {
-      return 'New Request';
-    }
-
+  const ticketId = item.ticket_id || item.id; // ✅ support both
   
-    return 'Pending';
-  };
+  if (item.contractor_assignment?.state?.toUpperCase() === 'COMPLETED') return 'Resolved';
+  
+  const mainStatus = item.status?.toLowerCase();
+  if (mainStatus === 'completed' || mainStatus === 'closed' || mainStatus === 'resolved') return 'Resolved';
+  if (item.completed_at || item.completion_notes) return 'Resolved';
+  
+  if (item.contractor_assignment?.state?.toUpperCase() === 'ACCEPTED' ||
+      item.contractor_assignment?.state?.toUpperCase() === 'IN_PROGRESS') return 'In Progress';
+  
+  if (mainStatus === 'in_progress') return 'In Progress'; // ✅ add this too
+  
+  if (mainStatus === 'open' || mainStatus === 'new' || mainStatus === 'pending') return 'New Request'; // ✅ add pending
+  
+  return 'Pending';
+};
 
   const getTenantNameForSort = (ticket) => {
     return (
