@@ -265,7 +265,7 @@ useEffect(() => {
             style={styles.refreshBtn}
             onPress={() => setFilterVisible(true)}
           >
-            <AppIcon name={icons.progresses} size={hp(3)} />
+            <AppIcon name={icons.progresses} size={hp(2.5)} />
           </TouchableOpacity>
         </View>
       </View>
@@ -380,7 +380,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.backgroundColor,
     borderRadius: wp(4),
     padding: wp(5),
-    marginBottom: hp(2),
+    marginBottom: hp(1),
     marginHorizontal: wp(4),
     shadowColor: Colors.black,
     shadowOpacity: 0.05,
@@ -404,14 +404,14 @@ const styles = StyleSheet.create({
     fontSize: hp(1.4),
     fontFamily: Fonts.regular,
     color: Colors.grey,
-    marginTop: hp(0.5)
+  
   },
   // ✅ Payment Card Styles
   paymentCard: {
     backgroundColor: Colors.backgroundColor,
-    borderRadius: wp(4),
+    borderRadius: wp(2),
     padding: wp(5),
-    marginBottom: hp(2),
+    marginBottom: hp(1),
     marginHorizontal: wp(4),
     shadowColor: Colors.black,
     shadowOpacity: 0.05,
@@ -421,8 +421,7 @@ const styles = StyleSheet.create({
   paymentHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: hp(2),
-    paddingBottom: hp(1.5),
+    marginBottom: hp(1),
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
@@ -453,13 +452,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   paymentNumber: {
-    fontSize: hp(2.5),
+    fontSize: hp(1.6),
     fontFamily: Fonts.bold,
     color: Colors.black,
     marginBottom: hp(0.3),
   },
   paymentAmount: {
-    fontSize: hp(2),
+    fontSize: hp(1.6),
     fontFamily: Fonts.bold,
     color: Colors.black,
     marginBottom: hp(0.3),
@@ -507,9 +506,9 @@ const styles = StyleSheet.create({
     fontSize: hp(1.75),
   },
   refreshBtn: {
-    padding: wp(2.5),
+    padding: wp(2),
     backgroundColor: Colors.white,
-    borderRadius: wp(2.5),
+    borderRadius: wp(2),
     borderWidth: 1,
     borderColor: Colors.border,
   },

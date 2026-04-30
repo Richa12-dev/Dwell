@@ -328,7 +328,7 @@ const handlePayRent = async () => {
   };
 
   return (
-    <Container style={styles.pageContainer}>
+    <Container scroll={false}>
       {/* Quick Links Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Quick Links</Text>
@@ -546,10 +546,10 @@ const QuickLink = ({ icon, label, onPress }) => (
 );
 
 const styles = StyleSheet.create({
-  pageContainer: {},
+ 
   section: {
     marginHorizontal: wp(4.5),
-    marginTop: hp(2),
+   
   },
   sectionTitle: {
     fontSize: hp(2.2),
@@ -561,7 +561,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
-    marginTop: hp(1),
+    marginTop: hp(0.5),
   },
   rentCardWrapper: {
     marginHorizontal: wp(4.5),

@@ -16,17 +16,12 @@ import { rentReducer } from './Rent/rentSlice';
 import mainChatbotReducer from './MainChatbot/mainChatbotSlice';
 import { documentsReducer } from './Documents/documentsSlice';
 import { inviteReducer } from './Invite/inviteSlice';
+import { userReducer } from './Users/userSlice';
 
 
 const persistConfig = {
   key: '@studyApp',
   storage: AsyncStorage,
-  // ✅ FIXED: 'loginData' removed from blacklist.
-  // loginData has its OWN nested persistReducer (loginPersistConfig) which
-  // whitelists ['accessToken', 'token', 'userData', 'is_logged'].
-  // If loginData is in the ROOT blacklist, redux-persist skips it entirely —
-  // the nested config never rehydrates, so accessToken is always null after
-  // app restart → every authenticated request gets a 401 → "Session expired".
   blacklist: ['properties'],
 };
 
@@ -75,6 +70,7 @@ const rootReducer = combineReducers({
     rent: rentReducer,
     mainChatbot: mainChatbotReducer,
     documents: documentsReducer,
+    users:         userReducer,
 
 
 });

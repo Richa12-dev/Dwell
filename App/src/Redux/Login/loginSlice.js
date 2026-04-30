@@ -33,6 +33,7 @@ function _applyAuthPayload(state, payload) {
     tenantId:     payload.tenantId     || null,
     contractorId: payload.contractorId || null,
     role:         payload.role         || 'tenant',
+    phone:        payload.phone        || payload.phoneNumber || '',
     email:        payload.email        || '',
     firstName:    payload.firstName    || '',
     lastName:     payload.lastName     || '',
@@ -319,7 +320,7 @@ const loginSlice = createSlice({
           email: payload.email || state.userData.email,
           firstName: payload.firstName || state.userData.firstName,
           lastName: payload.lastName || state.userData.lastName,
-          phoneNumber: payload.phoneNumber || state.userData.phoneNumber,
+          phone: payload.phone       || state.userData.phone,
           role: (payload.role || state.userData.role || '').toLowerCase(),
         };
       }

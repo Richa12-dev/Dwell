@@ -95,6 +95,7 @@ const ProfileHome = ({ navigation }) => {
 
   const userRole  = displayData?.role  || 'N/A';
   const userEmail = displayData?.email || 'N/A';
+    const userPhone = displayData?.phone || 'N/A';
 
   // ── Image source ──────────────────────────────────────────────────────────────
   const profileImageSource = profileImageUri
@@ -157,7 +158,7 @@ const ProfileHome = ({ navigation }) => {
     },
     [dispatch, userId],
   );
-
+  
   const handleLogout = async () => {
     try {
       setShowDialog(false);
@@ -241,8 +242,9 @@ const ProfileHome = ({ navigation }) => {
           <View style={styles.infoList}>
             <InfoItem label="Full Name" value={fullName}  />
             <InfoItem label="Role"      value={userRole}  />
-            <InfoItem label="User ID"   value={userId}    />
+           
             <InfoItem label="Email ID"  value={userEmail} />
+            <InfoItem label="Phone No."  value={userPhone} />
           </View>
         </View>
       </View>

@@ -118,6 +118,8 @@ const userSlice = createSlice({
               ...payload,
               // Preserve existing image — PATCH response may omit profileImage
               profileImage: state.profileDetail?.profileImage,
+                phone:  payload?.phone  || state.profileDetail?.phone,
+                email:  payload?.email  || state.profileDetail?.email,
             };
           }
         }
@@ -194,6 +196,7 @@ const userSlice = createSlice({
       .addCase(fetchUserProfile.fulfilled, (state, { payload }) => {
         state.profileDetailLoading = false;
         state.profileDetail = { ...payload }; // store raw, don't sanitize
+          console.log('✅ profileDetail SET in reducer:', state.profileDetail?.phone);
       })
       .addCase(fetchUserProfile.rejected,  (state, { payload, error }) => {
         state.profileDetailLoading = false;

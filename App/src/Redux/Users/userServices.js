@@ -92,20 +92,6 @@ export const updateUser = createAsyncThunk(
   },
 );
 
-// ─── Full image upload flow ───────────────────────────────────────────────────
-// Step 1: POST /users/profile-image/upload-url  → { uploadUrl, fileUrl, key }
-// Step 2: PUT  <uploadUrl>                       → S3 directly (no auth header)
-// Step 3: PATCH /users/:userId                   → { profileImage: fileUrl }
-//
-// WHY fileUrl, not key:
-//   The backend stores whatever value is passed as profileImage directly in DB
-//   and returns it (or a signed version) via GET /users/profiledetail.
-//
-//     DB stores:   "https://bucket.s3.../uploads/profiles/UUID.jpg"  (fileUrl)
-//     GET returns: "https://signed-url-for-profile-image"             ✓
-//
-//   Storing the raw fileUrl keeps the DB record self-contained — the GET
-//   endpoint returns the URL directly without any key-prepending logic.
 
 
 const uploadToS3 = async (fileUri, uploadUrl, contentType = 'image/jpeg') => {
@@ -122,7 +108,7 @@ const uploadToS3 = async (fileUri, uploadUrl, contentType = 'image/jpeg') => {
     const result = await fetch(uploadUrl, {
       method:  'PUT',
       headers: {
-        'Content-Type': contentType, // MUST match the contentType sent to /s3/upload-url
+        'Content-Type': contentType,
       },
       body: blob,
     });
@@ -157,7 +143,7 @@ const handleSingleUpload = async (file, token) => {
 };
 
 export const processPropertyImages = async (images, token, onProgress) => {
-  console.log('🖼️  processPropertyImages — total:', images?.length ?? 0);
+
 
   if (!Array.isArray(images) || images.length === 0) return [];
   if (!token) { console.error('❌ No token'); return []; }
@@ -203,14 +189,12 @@ export const processPropertyImages = async (images, token, onProgress) => {
     if (fileUrl) {
       uploadedUrls.push(fileUrl);
     } else {
-      console.warn(`⚠️  Image ${i + 1} failed — skipping`);
+      console.warn(` Image ${i + 1} failed — skipping`);
       Toast.show(`Warning: Image ${i + 1} could not be uploaded`);
     }
   }
 
   onProgress && onProgress(localFiles.length, localFiles.length);
-  console.log(`\n📊 Summary: ${uploadedUrls.length}/${localFiles.length} succeeded`);
-
   return [...remoteUrls, ...uploadedUrls];
 };
 
@@ -348,16 +332,29 @@ export const findUserByPhone = createAsyncThunk(
 // Returns the full profile. The backend generates a fresh presigned URL for
 // profileImage on every call using the stored key. Called on ProfileHome mount
 // and after every upload to get the latest valid presigned URL.
+// userServices.js
 export const fetchUserProfile = createAsyncThunk(
   'users/fetchUserProfile',
-  async (_, { rejectWithValue }) => {
+  async (_, { getState, rejectWithValue }) => {
     try {
-      const response = await authFetch(`${USERS_URL}/profiledetail`, { method: 'GET' });
-      const data     = await safeJson(response);
+      // ✅ Read token directly from state — avoids stale Redux Persist issue
+      const state = getState();
+      const token = state.loginData?.accessToken || state.loginData?.token;
+
+      const response = await authFetch(`${USERS_URL}/profiledetail`, {
+        method: 'GET',
+        token, // pass explicitly so authFetch doesn't read stale store
+      });
+      const data = await safeJson(response);
+
+      // ✅ Fix dead log — moved BEFORE return
+      console.log('fetchUserProfile status:', response.status);
+      console.log('fetchUserProfile data:', JSON.stringify(data));
+
       if (response.ok) return data;
-        console.log('fetchUserProfile RAW response:', JSON.stringify(data));
       return rejectWithValue(data?.message || `Failed (${response.status})`);
     } catch (err) {
+      console.log('fetchUserProfile THREW:', err.message);
       return rejectWithValue(err?.message || 'Failed to fetch profile');
     }
   },

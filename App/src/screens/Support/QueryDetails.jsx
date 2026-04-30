@@ -23,9 +23,7 @@ import { maintenanceSelectors } from "../../Redux/Maintenance/maintenanceSlice";
 // ✅ useSignedMediaUrls — designed for maintenance tickets (photos + voice)
 import useSignedMediaUrls from '../../commonFunction/useSignedMediaUrls';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────────────────────────────────────
+
 export default function QueryDetails({ route, navigation }) {
   const dispatch = useDispatch();
 
@@ -47,6 +45,7 @@ export default function QueryDetails({ route, navigation }) {
   const [el2ModalMessage,       setEl2ModalMessage]        = useState("");
   const [escalateButtonEnabled, setEscalateButtonEnabled]  = useState(true);
   const [imageErrors,           setImageErrors]            = useState({});
+  const lastTapRef = useRef({});
   // const [isPlaying,             setIsPlaying]              = useState(false);  // VOICE COMMENTED OUT
   // const playerRef = useRef(null);  // VOICE COMMENTED OUT
 
@@ -279,6 +278,22 @@ export default function QueryDetails({ route, navigation }) {
                               <Text style={styles.imageErrorText}>Failed to load</Text>
                             </View>
                           ) : (
+                           <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => {
+          const now = Date.now();
+          const last = lastTapRef.current[index] || 0;
+          if (now - last < 300) {
+            // ✅ Double tap → open full screen
+            navigation.navigate('FullScreenImageViewer', {
+              images:       photoUrls,
+              initialIndex: index,
+           title:        title || 'Attachments', 
+            });
+          }
+          lastTapRef.current[index] = now;
+        }}
+      >
                             <Image
                               source={{ uri: photoUrl }}
                               style={styles.photoThumbnail}
@@ -286,6 +301,7 @@ export default function QueryDetails({ route, navigation }) {
                               onError={() => handleImageError(index)}
                               onLoad={() => console.log('✅ Image loaded idx', index)}
                             />
+                               </TouchableOpacity>
                           )}
                         </View>
                       ))}

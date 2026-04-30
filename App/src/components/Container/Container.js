@@ -115,8 +115,8 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingTop: Platform.select({
-      android: (StatusBar.currentHeight || 0) + hp(9) + hp(2),
-      ios: hp(7) + hp(9) + hp(2),
+      android: (StatusBar.currentHeight || 0) + hp(8) + hp(2),
+      ios: hp(6) + hp(6) + hp(2),
       default: hp(9) + hp(2),
     }),
     paddingBottom: hp(12),
@@ -129,7 +129,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: Platform.select({
       android: (StatusBar.currentHeight || 0) + hp(9) + hp(2),
-      ios: hp(7) + hp(9) + hp(2),
+      ios: hp(6) + hp(6) + hp(2),
       default: hp(9) + hp(2),
     }),
   },

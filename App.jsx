@@ -87,6 +87,10 @@ import { registerDeviceToken, removePushListeners } from './App/src/utils/regist
 import { registerDeviceTokenToServer } from './App/src/Redux/Login/loginSlice';
 import { resolveInviteToken } from './App/src/Redux/Invite/inviteServices';
 import DeviceInfo from 'react-native-device-info';
+import FullScreenImageViewer from './App/src/components/FullScreenImageViewer/FullScreenImageViewer';
+import SignDocumentScreen from './App/src/screens/Payment/SignDocumentScreen';
+import DocumentPreviewScreen from './App/src/screens/Payment/DocumentPreviewScreen';
+
 
 const Stack = createNativeStackNavigator();
 
@@ -388,6 +392,18 @@ const App = () => {
   component={WebhookLogMonitor}
   options={{ title: 'SMS Webhook Monitor' }}
 />
+<Stack.Screen
+  name="FullScreenImageViewer"
+  component={FullScreenImageViewer}
+  options={{
+    headerShown:   false,
+    animation:     'fade',          // smooth black fade in
+    presentation:  'fullScreenModal',
+  }}
+/>
+
+<Stack.Screen name="SignDocumentScreen" component={SignDocumentScreen} options={{ headerShown: false }} />
+<Stack.Screen name="DocumentPreviewScreen" component={DocumentPreviewScreen} />
                           
            
             </Stack.Navigator>

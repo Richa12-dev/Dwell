@@ -579,6 +579,143 @@ export const geocodeAddress = async (address) => {
   }
 };
 
+// ═════════════════════════════════════════════════════════════
+// PLACES AUTOCOMPLETE
+// Returns up to 5 address predictions for the given input text.
+// ═════════════════════════════════════════════════════════════
+export const fetchAddressSuggestions = async (input) => {
+  if (!input || input.trim().length < 3) return [];
+
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 6000);
+
+  try {
+    const response = await fetch(
+      'https://places.googleapis.com/v1/places:autocomplete',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type':     'application/json',
+          'X-Goog-Api-Key':   GEOCODING_API_KEY,
+        },
+        body: JSON.stringify({
+          input:         input.trim(),
+          languageCode:  'en',
+        }),
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeoutId);
+
+    const data = await response.json();
+    console.log('[Autocomplete] new API response:', JSON.stringify(data).slice(0, 200));
+
+    if (!Array.isArray(data.suggestions)) return [];
+
+    // Map new shape → same shape the component expects
+    return data.suggestions
+      .filter(s => s.placePrediction)
+      .slice(0, 10)
+      .map(s => ({
+        place_id:    s.placePrediction.placeId,
+        description: s.placePrediction.text?.text || '',
+        structured_formatting: {
+          main_text:      s.placePrediction.structuredFormat?.mainText?.text      || s.placePrediction.text?.text || '',
+          secondary_text: s.placePrediction.structuredFormat?.secondaryText?.text || '',
+        },
+      }));
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') console.warn('[Autocomplete] timed out');
+    else console.warn('[Autocomplete] error:', error.message);
+    return [];
+  }
+};
+
+// ═════════════════════════════════════════════════════════════
+// PLACE DETAILS
+// Given a place_id, returns parsed street / city / state / zip.
+// ═════════════════════════════════════════════════════════════
+export const fetchPlaceDetails = async (placeId, preloadedComponents = null) => {
+  if (preloadedComponents) {
+    const parts    = preloadedComponents;
+    const get      = (type) => parts.find(c => c.types?.includes(type))?.long_name  || '';
+    const getShort = (type) => parts.find(c => c.types?.includes(type))?.short_name || '';
+    const streetNum = get('street_number');
+    const route     = get('route');
+    return {
+      street:   streetNum && route ? `${streetNum} ${route}` : (route || ''),
+      city:     get('locality') || get('sublocality_level_1') || get('administrative_area_level_2'),
+      state:    getShort('administrative_area_level_1'),
+      zip_code: get('postal_code'),
+    };
+  }
+
+  if (!placeId) return null;
+
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 6000);
+
+  try {
+    // ✅ Strip 'places/' prefix if already included in placeId
+    const cleanId = placeId.replace(/^places\//, '');
+
+    const response = await fetch(
+      `https://places.googleapis.com/v1/places/${cleanId}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type':     'application/json',
+          'X-Goog-Api-Key':   GEOCODING_API_KEY,
+          'X-Goog-FieldMask': 'addressComponents',
+        },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeoutId);
+
+    const data = await response.json();
+
+    // ✅ Log to confirm shape
+    console.log('[PlaceDetails] status:', response.status);
+    console.log('[PlaceDetails] raw:', JSON.stringify(data).slice(0, 400));
+
+    const parts = data.addressComponents || [];
+
+    if (parts.length === 0) {
+      console.warn('[PlaceDetails] addressComponents is empty — check FieldMask or placeId');
+      return null;
+    }
+
+    // New Places API uses longText/shortText instead of long_name/short_name
+    const get      = (type) => parts.find(c => c.types?.includes(type))?.longText  || '';
+    const getShort = (type) => parts.find(c => c.types?.includes(type))?.shortText || '';
+
+    const streetNum = get('street_number');
+    const route     = get('route');
+
+    const result = {
+      street:   streetNum && route
+                  ? `${streetNum} ${route}`
+                  : route || get('premise') || '',
+      city:     get('locality')
+                  || get('sublocality_level_1')
+                  || get('administrative_area_level_2')
+                  || get('postal_town'),
+      state:    getShort('administrative_area_level_1'),
+      zip_code: get('postal_code'),
+    };
+
+    console.log('[PlaceDetails] parsed result:', result); // ✅
+    return result;
+
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') console.warn('[PlaceDetails] timed out');
+    else console.warn('[PlaceDetails] error:', error.message);
+    return null;
+  }
+};
 export const openLocationInMaps = async (property) => {
   try {
     const parts = [
@@ -896,3 +1033,4 @@ export const getLandlordTenants = createAsyncThunk(
     } catch (err) { return rejectWithValue(err.message || 'Failed to fetch tenants'); }
   }
 );
+

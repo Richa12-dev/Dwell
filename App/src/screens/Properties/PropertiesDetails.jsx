@@ -18,8 +18,9 @@ import { icons } from "../../Assets";
 import Container from "../../components/Container/Container";
 import { openLocationInMaps, getProperty } from "../../Redux/Properties/servicesNode";
 import { loginDataSelectors } from "../../Redux/Login/loginSlice";
-import { propertiesSelectors, clearCurrentTenant } from "../../Redux/Properties/propertiesSlice";
-import { getTenantById } from "../../Redux/Properties/servicesNode";
+import { propertiesSelectors } from '../../Redux/Properties/propertiesSlice';
+import { tenantsSelectors } from '../../Redux/Tenants/tenantsSlice';
+import { getTenantsByProperty } from '../../Redux/Tenants/services';
 import { Colors } from "../../Theme";
 import { getFontFamily } from "../../utils";
 import { fetchSignedUrl } from "../../commonFunction/useSignedImageUrls";
@@ -48,13 +49,10 @@ const PropertiesDetails = ({ route, navigation }) => {
   const { userData } = useSelector(loginDataSelectors.getLoginStatus);
   const accessToken  = useSelector(loginDataSelectors.getAccessToken);
 
-  const currentTenantRaw = useSelector(propertiesSelectors.getCurrentTenant);
-  const currentTenants   = Array.isArray(currentTenantRaw)
-    ? currentTenantRaw
-    : currentTenantRaw ? [currentTenantRaw] : [];
-
-  const tenantLoading = useSelector(propertiesSelectors.isTenantLoading);
-  const [pendingTenants, setPendingTenants] = useState(0);
+const tenantRecords = useSelector(
+  tenantsSelectors.getTenantsByProperty(propertyId)
+);
+const tenantLoading = useSelector(tenantsSelectors.isLoadingByProperty);
 
   // ── If property not in Redux yet, fetch it ─────────────────
   useEffect(() => {
@@ -64,13 +62,18 @@ const PropertiesDetails = ({ route, navigation }) => {
     }
   }, [propertyId, property, accessToken]);
 
-  const fallbackTenants = (property?.tenant_names || []).map((name, i) => ({
-    id:    property?.tenant_ids?.[i] || `fallback-${i}`,
-    name,
-    email: property?.tenant_emails?.[i] || null,
-    phone: null, avatar: null,
+
+const displayTenants = tenantRecords
+  .filter(r => r?.tenant)           // only records with tenant data
+  .map(r => ({
+    id:          r.tenant.id,
+    name:        `${r.tenant.firstName || ''} ${r.tenant.lastName || ''}`.trim() || 'Tenant',
+    email:       r.tenant.email || null,
+    phone:       r.tenant.phone || null,
+    avatar:      r.tenant.avatar || null,
+    leaseStatus: r.leaseStatus,
+    lease_start: r.createdAt,
   }));
-  const displayTenants = currentTenants.length > 0 ? currentTenants : fallbackTenants;
 
   const contactEmail = userData?.email       || null;
   const contactPhone = userData?.phoneNumber || null;
@@ -164,29 +167,11 @@ const getAmenitiesFromFlags = (prop) => {
     return () => { cancelled = true; };
   }, [JSON.stringify(property?.images || property?.image_urls || []), accessToken]);
 
-const fetchTenantData = async () => {
-  const av = (property?.availability || property?.availabilityStatus || '').toLowerCase();
-  const isOccupied = av === 'currently occupied' || av === 'under maintenance';
-  if (!isOccupied || !accessToken) return;
-
-  // ✅ FIX Bug 2 — use tenant_ids OR fall back to singular tenantId
-  const tenantIds = property?.tenant_ids?.length > 0
-    ? property.tenant_ids
-    : property?.tenantId
-    ? [property.tenantId]
-    : property?.tenant_id
-    ? [property.tenant_id]
-    : [];
-
-  if (tenantIds.length === 0) return;
-
-  setPendingTenants(tenantIds.length);
-  for (const tenantId of tenantIds) {
-    dispatch(getTenantById({ tenantId, token: accessToken }))
-      .finally(() => setPendingTenants(prev => Math.max(0, prev - 1)));
+const fetchTenantData = () => {
+  if (propertyId && accessToken) {
+    dispatch(getTenantsByProperty(propertyId));
   }
 };
-
   // ── Derived values ────────────────────────────────────────
   const availabilityVal = (property?.availability || property?.availabilityStatus || '').toLowerCase();
   const status =
@@ -232,6 +217,7 @@ const fetchTenantData = async () => {
       </Container>
     );
   }
+
 
   return (
     <Container style={{ marginTop: -navbarHeight }}>
@@ -397,7 +383,7 @@ const fetchTenantData = async () => {
           {(availabilityVal === 'currently occupied' || availabilityVal === 'under maintenance') && (
             <View style={styles.glassCard}>
               <Text style={styles.sectionTitle}>Tenant Information</Text>
-              {(tenantLoading || pendingTenants > 0) && displayTenants.length === 0 ? (
+          {tenantLoading && displayTenants.length === 0 ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="small" color="#EF4444" />
                   <Text style={styles.loadingText}>Loading tenant information...</Text>
@@ -487,10 +473,22 @@ const fetchTenantData = async () => {
                 </Text>
                 <Text style={styles.utilitiesText}>+ Utilities Bill</Text>
               </View>
-              <TouchableOpacity style={styles.downloadBtn}>
-                <Text style={styles.downloadBtnText}>Download Agreement</Text>
+              <TouchableOpacity style={styles.downloadBtn}
+                 activeOpacity={0.8}
+                  onPress={() => navigation.navigate('RentCollection')}>
+                <Text style={styles.downloadBtnText}>Rent</Text>
               </TouchableOpacity>
             </View>
+                <TouchableOpacity style={styles.downloadBtn}
+                 activeOpacity={0.8}
+            onPress={() =>
+      navigation.navigate('PropertyDocuments', {
+        propertyId:   property?.property_id || property?.id,
+        propertyName: property?.name || 'Property',
+      })
+    }>
+                <Text style={styles.downloadBtnText}>Property Agreement </Text>
+              </TouchableOpacity>
           </View>
 
         </View>
@@ -580,6 +578,6 @@ const styles = StyleSheet.create({
   infoRowValue:          { fontSize: 14, color: "#111827", fontWeight: "600" },
   rentPrice:             { fontSize: 20, fontWeight: "bold", color: Colors.black },
   utilitiesText:         { fontSize: 12, color: "#6B7280", marginTop: 2 },
-  downloadBtn:           { backgroundColor: "#EF4444", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10, justifyContent: "center", alignItems: "center" },
-  downloadBtnText:       { color: "#fff", fontWeight: "700", fontSize: 12 },
+  downloadBtn:           { backgroundColor: Colors.red, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10, justifyContent: "center", alignItems: "center" },
+  downloadBtnText:       { color: Colors.white, fontWeight: "700", fontSize: 12 },
 });

@@ -50,6 +50,7 @@ const LandlordTicketDetails = ({ route, navigation }) => {
   const [imageErrors,        setImageErrors]        = useState({});
   const [isPlaying,          setIsPlaying]          = useState(false);
   const playerRef = useRef(null);
+  const lastTapRef = useRef({});
 
   const priorityData = [
     { label: 'Emergency', value: 'Emergency' },
@@ -241,7 +242,7 @@ tenantName:
         <ScrollView
           ref={scrollViewRef}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 20 }}
+          contentContainerStyle={{ paddingBottom: 10 }}
         >
           {/* Tenant Info Card */}
           <View style={styles.tenantCard}>
@@ -342,6 +343,22 @@ tenantName:
                                   <Icon name="image-broken-variant" size={24} color="#9CA3AF" />
                                 </View>
                               ) : (
+                                 <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => {
+          const now = Date.now();
+          const last = lastTapRef.current[idx] || 0;
+          if (now - last < 300) {
+            // ✅ Double tap → open full screen
+            navigation.navigate('FullScreenImageViewer', {
+              images:       photoUrls,
+              initialIndex: idx,
+              title:        ticketData.title || 'Attachments',
+            });
+          }
+          lastTapRef.current[idx] = now;
+        }}
+      >
                                 <Image
                                   source={{ uri }}
                                   style={styles.photoImage}
@@ -349,6 +366,7 @@ tenantName:
                                   onError={() => setImageErrors(p => ({ ...p, [idx]: true }))}
                                   onLoad={() => console.log('✅ Ticket image loaded idx', idx)}
                                 />
+                                </TouchableOpacity>
                               )}
                             </View>
                           ))}

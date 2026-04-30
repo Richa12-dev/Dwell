@@ -11,10 +11,6 @@ import { getLandlordProperties, deleteProperty } from '../../Redux/Properties/se
 import { propertiesSelectors } from '../../Redux/Properties/propertiesSlice';
 import { tenantsSelectors } from '../../Redux/Tenants/tenantsSlice';
 
-// ✅ FIX: Use getPropertyTenants (writes to TENANTS slice)
-//    NOT getLandlordTenants (writes to PROPERTIES slice).
-//    Both this screen and TenantManagement.jsx now read from the same Redux slice,
-//    so data is already present when the user switches to the Tenants tab.
 import { getPropertyTenants } from '../../Redux/Tenants/services';
 
 import { useNavigation } from '@react-navigation/native';
@@ -473,7 +469,7 @@ const styles = StyleSheet.create({
   linkCard:               { width: wp(20), alignItems: "center", marginBottom: hp(1) },
   iconCircle:             { width: wp(14), height: wp(14), borderRadius: wp(7), backgroundColor: "#FFF4F4", justifyContent: "center", alignItems: "center", marginBottom: hp(0.5), shadowColor: "#E53935", shadowOpacity: 0.1, shadowRadius: 5, elevation: 3, borderColor: Colors.lightRed, borderWidth: 1.5 },
   linkText:               { fontSize: wp(3), fontFamily: getFontFamily("medium"), textAlign: "center", color: Colors.black },
-  tabSwitcher:            { width: 370, height: 50, borderRadius: 100, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", backgroundColor: "rgba(255,255,255,0.7)", flexDirection: "row", alignSelf: "center", overflow: "hidden", marginBottom: 16, position: "relative" },
+  tabSwitcher:            { width: 370, height: 30, borderRadius: 100, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", backgroundColor: "rgba(255,255,255,0.7)", flexDirection: "row", alignSelf: "center", overflow: "hidden", marginBottom: 16, position: "relative" , marginTop: hp(1)},
   tabSlider:              { position: "absolute", top: 0, width: "50%", height: "100%", backgroundColor: "#E53935", borderRadius: 100 },
   tabItem:                { flex: 1, justifyContent: "center", alignItems: "center", zIndex: 1 },
   tabInner:               { flexDirection: "row", alignItems: "center", gap: 4 },

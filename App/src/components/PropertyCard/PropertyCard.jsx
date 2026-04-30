@@ -119,7 +119,7 @@ const PropertyCard = React.memo(
     return (
       <Pressable onPress={() => onViewDetails(property)} style={styles.pressable}>
         <View style={styles.cardContainer}>
-          <View style={[styles.row, { height: hp(20) }]}>
+          <View style={[styles.row, { height: hp(16) }]}>
 
             {/* LEFT – IMAGE */}
             <View style={styles.imageContainer}>
@@ -250,18 +250,18 @@ const PropertyCard = React.memo(
 
 const styles = StyleSheet.create({
   pressable: {
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   cardContainer: {
-    width: wp(92),
-    height: hp(21),
+    width: wp('92%'),
+    height: hp('16%'),
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: hp('0.25%') },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowRadius: wp('2%'),
     elevation: 3,
   },
   row: {
@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   imageContainer: {
-    width: wp(35),
+    width: wp('35%'),
     height: '100%',
     position: 'relative',
   },
@@ -279,30 +279,30 @@ const styles = StyleSheet.create({
   },
   favoriteButton: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    top: hp('1%'),
+    right: wp('2%'),
+    width: wp('8%'),
+    height: wp('8%'),
+    borderRadius: wp('4%'),
     backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   contentContainer: {
     flex: 1,
-    padding: 10,
+    padding: wp('2.5%'),
     justifyContent: 'space-between',
   },
   propertyType: {
-    fontSize: 18,
+    fontSize: wp('3.8%'),
     fontWeight: '700',
     color: '#1a1a1a',
-    marginRight: 8,
+    marginRight: wp('2%'),
   },
   statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
   },
   occupied: {
     backgroundColor: '#E53935',
@@ -312,58 +312,57 @@ const styles = StyleSheet.create({
   },
   statusText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
   },
   address: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#666',
-    marginTop: 2,
-    marginBottom: 12,
+    marginTop: hp('0.25%'),
+    marginBottom: hp('1.5%'),
   },
   infoRow: {
     flexDirection: 'row',
-    gap: 20,
-    marginBottom: 12,
+    gap: wp('5%'),
+    marginBottom: hp('1.2%'),
   },
   infoItem: {
     flexDirection: 'column',
   },
   infoLabel: {
-    fontSize: 11,
+    fontSize: wp('2.8%'),
     color: '#666',
   },
   infoValue: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#1a1a1a',
   },
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   viewDetailsButton: {
     backgroundColor: '#E53935',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('1%'),
+    borderRadius: wp('2%'),
     alignItems: 'center',
     justifyContent: 'center',
   },
   viewDetailsText: {
     color: 'white',
-    fontSize: 11,
+    fontSize: wp('2.8%'),
     fontWeight: '600',
   },
   iconButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+    width: wp('7.5%'),
+    height: wp('7.5%'),
+    borderRadius: wp('2%'),
     backgroundColor: '#f5f5f5',
     justifyContent: 'center',
     alignItems: 'center',
   },
 });
-
 export default PropertyCard;

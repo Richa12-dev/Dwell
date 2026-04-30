@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
   },
   glassContainer: {
     flex: 1,
-    height: hp(9),
+    height: hp(7),
     maxWidth: wp(75),
     borderRadius: 100,
     backgroundColor: 'rgba(255, 245, 245, 0.85)',
@@ -272,8 +272,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: hp(0.3),
-    width: wp(11),
-    height: wp(11),
+    width: wp(9),
+    height: wp(9),
     borderRadius: wp(5.5),
     backgroundColor: 'transparent',
   },
@@ -282,12 +282,12 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: wp(2.8),
-    marginTop: hp(0.2),
+  
     textAlign: 'center',
   },
   floatingAIButton: {
-    width: wp(16),
-    height: wp(16),
+    width: wp(14),
+    height: wp(14),
     borderRadius: wp(8),
     backgroundColor: 'transparent',
     borderWidth: 2,

@@ -169,11 +169,6 @@ const renderTenantCard = ({ item }) => {
             </View>
           </View>
 
-          {/* Tenant ID */}
-          <Text style={styles.tenantId}>
-            ID: {tenantId}
-          </Text>
-
           {/* Address */}
           <Text style={styles.tenantAddress} numberOfLines={2}>
             {address}

@@ -496,7 +496,7 @@ export default Support;
 const styles = StyleSheet.create({
   headerContainer: {
     paddingHorizontal: wp(5),
-    paddingVertical: hp(2),
+    paddingVertical: hp(1),
   },
   headerRow: {
     flexDirection: 'row',

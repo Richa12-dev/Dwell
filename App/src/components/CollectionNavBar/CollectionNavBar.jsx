@@ -79,7 +79,7 @@ const CollectionNavBar = () => {
               style={styles.iconButton}>
             <AppIcon
                 name={hasUnread ? icons.bellIcon : icons.bell}
-                size={wp('7')}
+                size={wp('8')}
                 color={'#292929'}
               />
             </TouchableOpacity>
@@ -87,7 +87,7 @@ const CollectionNavBar = () => {
             <TouchableOpacity
               onPress={() => navigation.navigate('ProfileHome')}
               style={styles.iconButton}>
-              <AppIcon name={icons.profile} size={wp('7')} />
+              <AppIcon name={icons.profile} size={wp('8')} />
             </TouchableOpacity>
           </View>
         </View>
@@ -128,13 +128,13 @@ const CollectionNavBar = () => {
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 5 : hp(7),
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 5 : hp(6),
     paddingHorizontal: wp(4),
     backgroundColor: 'transparent',
   },
 
   glassContainer: {
-    height: hp(9),
+    height: hp(7),
     borderRadius: 100,
     flexDirection: 'row',
     alignItems: 'center',

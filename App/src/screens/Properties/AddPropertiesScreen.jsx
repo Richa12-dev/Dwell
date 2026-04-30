@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, memo } from "react";
+import React, { useState, useEffect, useCallback, memo, useRef } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Image, Modal, ActivityIndicator, KeyboardAvoidingView,
@@ -18,6 +18,8 @@ import { createProperty, updateProperty, geocodeAddress, getLandlordProperties }
 import { Colors } from '../../Theme';
 import { getFontFamily } from '../../utils';
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
+import AddressAutoComplete from '../../components/AddressAutoComplete/AddressAutoComplete';
+
 
 // ─────────────────────────────────────────────────────────────
 // Helper: extract images from a property object (edit mode)
@@ -34,7 +36,7 @@ const extractImagesFromProperty = (property) => {
 const initialForm = {
   name: "", description: "", images: [],
   street: "", city: "", state: "", zip_code: "",
-  property_type: "Apartment", bedrooms: "", bathrooms: "",
+  property_type: "Apartment", bedrooms: "2", bathrooms: "1",
   area_sqft: "", year_built: "", monthly_rent: "", security_deposit: "",
   amenities: {
     furnished: false, parking: false, elevator: false, ac: false,
@@ -173,45 +175,31 @@ const Step1 = memo(({
         <AppIcon name={icons.location} size={hp(2.5)} />
         <Text style={styles.label}>Address Information</Text>
       </View>
-      <Text style={styles.subLabel}>Street Address</Text>
-      <TextInput
-        mode="outlined" placeholder="Enter Street Address"
-        value={form.street} onChangeText={(t) => handleChange("street", t)}
-        style={styles.input} outlineColor={Colors.border} activeOutlineColor={Colors.red}
-        error={!!errors.street}
+      
+      <AddressAutoComplete
+        value={{
+          street:   form.street,
+          city:     form.city,
+          state:    form.state,
+          zip_code: form.zip_code,
+        }}
+        onChange={({ street, city, state, zip_code }) => {
+          handleChange('street',   street);
+          handleChange('city',     city);
+          handleChange('state',    state);
+          handleChange('zip_code', zip_code);
+        }}
+        errors={{
+          street: errors.street,
+          city:   errors.city,
+          state:  errors.state,
+        }}
       />
-      {errors.street ? <Text style={styles.errorText}>{errors.street}</Text> : null}
+      
+ </View>
+   
 
-      <View style={styles.row}>
-        <View style={styles.halfInput}>
-          <Text style={styles.subLabel}>City</Text>
-          <TextInput
-            mode="outlined" placeholder="City"
-            value={form.city} onChangeText={(t) => handleChange("city", t)}
-            style={styles.input} outlineColor={Colors.border} activeOutlineColor={Colors.red}
-            error={!!errors.city}
-          />
-          {errors.city ? <Text style={styles.errorText}>{errors.city}</Text> : null}
-        </View>
-        <View style={styles.halfInput}>
-          <Text style={styles.subLabel}>State</Text>
-          <TextInput
-            mode="outlined" placeholder="State"
-            value={form.state} onChangeText={(t) => handleChange("state", t)}
-            style={styles.input} outlineColor={Colors.border} activeOutlineColor={Colors.red}
-            error={!!errors.state}
-          />
-          {errors.state ? <Text style={styles.errorText}>{errors.state}</Text> : null}
-        </View>
-      </View>
-
-      <Text style={styles.subLabel}>Zip Code</Text>
-      <TextInput
-        mode="outlined" placeholder="12345-6789" keyboardType="numeric"
-        value={form.zip_code} onChangeText={(t) => handleChange("zip_code", t)}
-        style={styles.input} outlineColor={Colors.border} activeOutlineColor={Colors.red}
-      />
-    </View>
+    
 
     {verifiedAddress ? (
       <View style={styles.verifiedBadge}>
@@ -259,7 +247,7 @@ const Step2 = memo(({
           <Text style={styles.subLabel}>Bedrooms</Text>
           <TouchableOpacity style={styles.dropdownBox} onPress={() => setBedroomsModal(true)}>
             <Text style={[styles.dropdownText, !form.bedrooms && styles.placeholderText]}>
-              {form.bedrooms ? `${form.bedrooms} BHK` : "2 BHK"}
+             {`${form.bedrooms} BHK`}
             </Text>
             <AppIcon name={icons.arrowDown} size={hp(2)} color={Colors.placeholder} />
           </TouchableOpacity>
@@ -303,18 +291,18 @@ const Step2 = memo(({
         </View>
         <Text style={styles.subLabel}>Monthly Rent ($)</Text>
         <TextInput
-          mode="outlined" placeholder="$ 2600" keyboardType="numeric"
+          mode="outlined" placeholder="2600" keyboardType="numeric"
           value={form.monthly_rent} onChangeText={(t) => handleChange("monthly_rent", t)}
           style={styles.input} outlineColor={Colors.border} activeOutlineColor={Colors.red}
-          error={!!errors.monthly_rent} left={<TextInput.Affix text="$" />}
+          error={!!errors.monthly_rent}
         />
         {errors.monthly_rent ? <Text style={styles.errorText}>{errors.monthly_rent}</Text> : null}
         <Text style={styles.subLabel}>Security Deposit ($)</Text>
         <TextInput
-          mode="outlined" placeholder="$ 200000" keyboardType="numeric"
+          mode="outlined" placeholder="20000" keyboardType="numeric"
           value={form.security_deposit} onChangeText={(t) => handleChange("security_deposit", t)}
           style={styles.input} outlineColor={Colors.border} activeOutlineColor={Colors.red}
-          left={<TextInput.Affix text="$" />}
+        
         />
       </View>
     </View>
@@ -403,7 +391,7 @@ const Step3 = memo(({
                 <AppIcon name={icons.ok} size={hp(1.5)} color="white" />
               </View>
             )}
-            <AppIcon name={icon} size={hp(5)} color={form.amenities[key] ? Colors.red : Colors.placeholder} />
+            <AppIcon name={icon} size={hp(3.2)} color={form.amenities[key] ? Colors.red : Colors.placeholder} />
             <Text style={[styles.amenityLabel, form.amenities[key] && styles.amenityLabelActive]}>
               {label}
             </Text>
@@ -513,8 +501,8 @@ const AddPropertiesScreen = ({ onClose = () => {}, propertyData = null }) => {
         state:            propertyData.state || "",
         zip_code:         propertyData.zipcode || propertyData.zip_code || propertyData.zipCode || "",
         property_type:    propertyData.property_type || propertyData.propertyType || "Apartment",
-        bedrooms:         propertyData.bedrooms?.toString() || "",
-        bathrooms:        propertyData.bathrooms?.toString() || "",
+        bedrooms:         propertyData.bedrooms?.toString() || "2",
+        bathrooms:        propertyData.bathrooms?.toString() || "1",
         area_sqft:        propertyData.area
           ? propertyData.area.toString().replace(/[^\d]/g, '')
           : (propertyData.area_sqft?.toString() || ""),
@@ -1005,11 +993,44 @@ const styles = StyleSheet.create({
   dropdownBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: Colors.border, borderRadius: 4, paddingHorizontal: wp(3), height: hp(6), backgroundColor: Colors.white || '#fff' },
   dropdownText: { fontSize: hp(1.7), color: Colors.black, fontFamily: getFontFamily('regular') },
   placeholderText: { color: Colors.placeholder },
-  amenitiesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: wp(3.2), marginBottom: hp(2) },
-  amenityChip: { width: wp(14.5), alignItems: 'center', paddingVertical: hp(1.2), paddingHorizontal: wp(1), borderRadius: 10, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.white || '#fff', position: 'relative' },
-  amenityChipActive: { borderColor: Colors.red, backgroundColor: '#FFF5F5' },
-  amenityCheckmark: { position: 'absolute', top: 4, right: 4, backgroundColor: Colors.red, borderRadius: 8, padding: 2 },
-  amenityLabel: { fontSize: hp(1.3), textAlign: 'center', color: Colors.placeholder, marginTop: hp(0.5), fontFamily: getFontFamily('regular') },
+amenitiesGrid: {
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  justifyContent: 'space-between',
+  marginBottom: hp(2),
+},
+amenityChip: {
+  width: '13.5%',
+  minHeight: hp(7.2),
+  alignItems: 'center',
+  justifyContent: 'center',
+  paddingVertical: hp(0.7),
+  paddingHorizontal: wp(0.5),
+  borderRadius: 8,
+  borderWidth: 1,
+  borderColor: Colors.border,
+  backgroundColor: Colors.white || '#fff',
+  position: 'relative',
+  marginBottom: hp(0.5),
+},
+
+amenityCheckmark: {
+  position: 'absolute',
+  top: 2,
+  right: 2,
+  backgroundColor: Colors.red,
+  borderRadius: 6,
+  padding: 1,
+},
+
+amenityLabel: {
+  fontSize: hp(0.95),
+  lineHeight: hp(1.2),
+  textAlign: 'center',
+  color: Colors.placeholder,
+  marginTop: hp(0.25),
+  fontFamily: getFontFamily('regular'),
+},
   amenityLabelActive: { color: Colors.red, fontFamily: getFontFamily('medium') },
   infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: wp(2), marginTop: hp(1.5), backgroundColor: '#FFF8EC', borderRadius: 8, padding: wp(3) },
   infoText: { flex: 1, fontSize: hp(1.5), color: '#7A5C00', fontFamily: getFontFamily('regular'), lineHeight: hp(2.3) },
