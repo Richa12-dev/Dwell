@@ -22,6 +22,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   View,
+   Image,
 } from "react-native";
 import { HStack, Text, VStack } from "native-base";
 import { useDispatch, useSelector } from "react-redux";
@@ -49,6 +50,9 @@ import { documentsSelectors } from "../../Redux/Documents/documentsSlice";
 import { tenantsSelectors } from "../../Redux/Tenants/tenantsSlice";
 import { getLandlordContact } from "../../Redux/Tenants/services";
 import { buildSignedDocHtml } from "../../commonFunction/buildSignedDocHtml";
+// ADD this line below the existing AsyncStorage import
+import { launchImageLibrary } from "react-native-image-picker";
+
 
 /* ─────────────────────────────────────────────
    CONSTANTS
@@ -143,6 +147,36 @@ const SignDocumentScreen = () => {
   const [signatureUri,   setSignatureUri]  = useState(null);
   const [signing,        setSigning]       = useState(false);
   const [previewVisible, setPreviewVisible]= useState(false);
+  const [gallerySignatureUri, setGallerySignatureUri] = useState(null); // display URI
+const [isGalleryMode,       setIsGalleryMode]       = useState(false);
+
+const pickSignatureFromGallery = useCallback(() => {
+  launchImageLibrary(
+    {
+      mediaType: "photo",
+      includeBase64: true,   // needed for S3 upload (same as canvas flow)
+      quality: 1,
+      selectionLimit: 1,
+    },
+    (response) => {
+      if (response.didCancel || response.errorCode) return;
+
+      const asset = response.assets?.[0];
+      if (!asset?.base64) {
+        Toast.show("Could not read image. Please try another photo.");
+        return;
+      }
+
+      const dataUri = `data:image/png;base64,${asset.base64}`;
+ setGallerySignatureUri(asset.uri);   // for display in Image component
+      setSignatureUri(dataUri);            // ← same state the sign flow already uses ✅
+      setHasSignature(true);               // ← enables Submit button ✅
+      setIsGalleryMode(true);
+    }
+  );
+}, []);
+
+
 
   const isLoading = signing || actionLoading || uploadLoading || isLandlordLoading;
 
@@ -178,230 +212,144 @@ const SignDocumentScreen = () => {
     setHasSignature(!!sig && sig !== "data:,");
   }, []);
   const handleBegin  = useCallback(() => { setHasSignature(false); setSignatureUri(null); }, []);
-  const handleClear  = useCallback(() => { signatureRef.current?.clearSignature(); setHasSignature(false); setSignatureUri(null); }, []);
+  const handleClear  = useCallback(() => { signatureRef.current?.clearSignature(); setHasSignature(false);
+  setSignatureUri(null);
+   setGallerySignatureUri(null);    // ← ADD
+  setIsGalleryMode(false);
+   }, []);
   const readSignature= useCallback(() => { signatureRef.current?.readSignature(); }, []);
 
   /* ─────────────────────────────────────────────
      SIGN FLOW
   ───────────────────────────────────────────── */
   const handleConfirmSign = useCallback(async () => {
-    if (!hasSignature || !signatureUri) {
-      Toast.show("Please draw your signature first");
-      return;
-    }
+  if (!hasSignature || !signatureUri) {
+    Toast.show("Please draw your signature first");
+    return;
+  }
 
-    Alert.alert(
-      "Confirm Signature",
-      "By signing, you agree to the terms of this document. This action cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Sign",
-          onPress: async () => {
-            setSigning(true);
+  Alert.alert(
+    "Confirm Signature",
+    "By signing, you agree to the terms of this document. This action cannot be undone.",
+    [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign",
+        onPress: async () => {
+          setSigning(true);
+          try {
+            const docName  = doc?.filename || doc?.name || "Document";
+
+            // ── Get IDs ───────────────────────────────────────────────────
+            const documentId = doc?.document_id || doc?.id || doc?.documentId || null;
+            const uploadedBy =
+              userData?.tenantId || userData?.id ||
+              userData?.userId   || userData?.tenant_id || null;
+            const landlordId = resolvedLandlordId;
+            const propertyId = routePropertyId || null;
+
+            if (!uploadedBy) { Toast.show("User session error"); setSigning(false); return; }
+            if (!landlordId) { Toast.show("Could not fetch landlord info"); setSigning(false); return; }
+
+            // ── Step 1: Extract signature base64 ──────────────────────────
+            const sigBase64 = signatureUri?.includes(",")
+              ? signatureUri.split(",")[1]
+              : signatureUri;
+
+            const signedAt = new Date().toISOString();
+
+            // ── Step 2: Build merged HTML ──────────────────────────────────
+            const mergedHtml = buildSignedDocHtml(
+              doc?.html || doc?.htmlContent || "",
+              sigBase64,
+              signerName,
+              signedAt,
+            );
+            console.log("✅ Merged signed HTML built");
+
+            // ── Step 3: Upload signature PNG to S3 ────────────────────────
+            let sigPngUrl = null;
             try {
+              const pngFileName = `sig_${documentId || Date.now()}_${Date.now()}.png`;
 
-              const mappedType = resolveDocType(doc);
-              const docName    = doc?.filename || doc?.name || "Document";
+              const pngResult = await dispatch(
+                getDocumentUploadUrl({ fileName: pngFileName, fileType: "image/png", folder: "uploads" })
+              ).unwrap();
 
-              // ── Step 0: Resolve documentId ────────────────────────────
-              let documentId    = doc?.document_id || doc?.id || doc?.documentId || null;
-              let resolvedFileUrl = doc?.fileUrl || doc?.file_url || doc?.download_url || null;
-
-              if (!documentId) {
-                try {
-                  const uploadedBy =
-                    userData?.tenantId  || userData?.id  ||
-                    userData?.userId    || userData?.tenant_id || null;
-                  const landlordId = resolvedLandlordId;
-
-                  if (!landlordId) { Toast.show("Could not fetch landlord info"); setSigning(false); return; }
-                  if (!uploadedBy) { Toast.show("User session error");             setSigning(false); return; }
-
-                  let fileUrl = doc?.file_url || doc?.download_url || null;
-
-                  if (!fileUrl && doc?.pdf_base64) {
-                    try {
-                      const pdfFileName = `doc_${doc.document_type}_${Date.now()}.pdf`;
-                      const s3Result    = await dispatch(
-                        getDocumentUploadUrl({ fileName: pdfFileName, fileType: "application/pdf", folder: "uploads" })
-                      ).unwrap();
-                      await dispatch(
-                        uploadFileToS3({ uploadUrl: s3Result.uploadUrl, fileUri: `data:application/pdf;base64,${doc.pdf_base64}`, fileType: "application/pdf" })
-                      ).unwrap();
-                      fileUrl = s3Result.fileUrl || s3Result.url || null;
-                      resolvedFileUrl = fileUrl;
-                      console.log("✅ Template PDF uploaded:", fileUrl);
-                    } catch (pdfErr) {
-                      console.warn("⚠️ Template PDF upload failed:", pdfErr.message);
-                    }
-                  }
-
-                  if (!fileUrl) { Toast.show("Could not upload document file"); setSigning(false); return; }
-
-                  const tenantId   = uploadedBy;
-                  const propertyId = routePropertyId || null;
-
-                  const created = await dispatch(
-                    createDocument({
-                      documentData: {
-                        type: mappedType, name: docName, fileUrl, uploadedBy, tenantId,
-                        status: "pending",
-                        ...(landlordId ? { landlordId } : {}),
-                        ...(propertyId ? { propertyId } : {}),
-                      },
-                    })
-                  ).unwrap();
-
-                  documentId      = created?.id || created?.document_id || created?.documentId || null;
-                  resolvedFileUrl = created?.fileUrl || created?.file_url || resolvedFileUrl;
-                  console.log("✅ Document created — id:", documentId);
-
-                  if (!documentId) { Toast.show("Document created but no ID returned"); setSigning(false); return; }
-
-                } catch (createErr) {
-                  Toast.show(createErr?.message || "Failed to create document");
-                  setSigning(false);
-                  return;
-                }
-              }
-
-              // ── Step 1: Extract signature base64 ──────────────────────
-              const sigBase64 = signatureUri?.includes(",")
-                ? signatureUri.split(",")[1]
-                : signatureUri;
-
-              const signedAt = new Date().toISOString();
-
-              // ── Step 2: Build merged HTML ──────────────────────────────
-              // Template HTML + actual signature image (inline base64 PNG).
-              // This is what BOTH tenant and landlord will see in preview.
-              const mergedHtml = buildSignedDocHtml(
-                doc?.html || doc?.htmlContent || "",
-                sigBase64,
-                signerName,
-                signedAt,
-              );
-              console.log("✅ Merged signed HTML built");
-
-              // ── Step 3: Upload signature PNG to S3 ───────────────────
-              // Why PNG not HTML: backend presign endpoint only accepts
-              // application/pdf and image/png — text/html returns 500.
-              //
-              // Strategy: store sigPngUrl in a signed_document record (fileUrl).
-              // Both tenant and landlord load the PNG via presign, then combine
-              // it with the template HTML (always available from the API) to
-              // rebuild the merged signed document dynamically.
-              let sigPngUrl = null;
-              try {
-                const pngFileName = `sig_${documentId}_${Date.now()}.png`;
-
-                const pngResult = await dispatch(
-                  getDocumentUploadUrl({ fileName: pngFileName, fileType: "image/png", folder: "uploads" })
-                ).unwrap();
-
-                await dispatch(
-                  uploadFileToS3({
-                    uploadUrl: pngResult.uploadUrl,
-                    fileUri:   signatureUri,   // "data:image/png;base64,..."
-                    fileType:  "image/png",
-                  })
-                ).unwrap();
-
-                sigPngUrl = pngResult.fileUrl || pngResult.url || null;
-                console.log("✅ Signature PNG uploaded to S3:", sigPngUrl);
-              } catch (uploadErr) {
-                console.warn("⚠️ PNG upload failed — preview will use local sigBase64:", uploadErr.message);
-              }
-
-              // ── Step 4: PATCH original document → signed ──────────────
               await dispatch(
-                updateDocument({
-                  documentId,
-                  updates: {
-                    name:   docName,
-                    type:   mappedType,
-                    status: "signed",
-                    ...(routePropertyId && { propertyId: routePropertyId }),
-                    ...(doc?.tenantId   && { tenantId:   doc.tenantId }),
-                  },
+                uploadFileToS3({
+                  uploadUrl: pngResult.uploadUrl,
+                  fileUri:   signatureUri,
+                  fileType:  "image/png",
                 })
               ).unwrap();
-              console.log("✅ Original document marked as signed");
 
-              // ── Step 5: Create signed_document record ─────────────────
-              // fileUrl = sigPngUrl (the signature PNG on S3).
-              // POST /documents always saves fileUrl (PATCH ignores it).
-              // Landlord's PropertyDocuments reads this record, loads the PNG,
-              // and combines it with the template HTML to show the real signature.
-              if (sigPngUrl) {
-                try {
-                  const uploadedBy =
-                    userData?.tenantId || userData?.id ||
-                    userData?.userId   || userData?.tenant_id || null;
-                  const landlordId = resolvedLandlordId;
-                  const propertyId = routePropertyId || null;
-
-                  const signedRecord = await dispatch(
-                    createDocument({
-                      documentData: {
-                        type:       "signed_document",
-                        name:       docName,       // ← same name as original for matching
-                        fileUrl:    sigPngUrl,     // ← signature PNG URL ✅ (server saves this)
-                        status:     "signed",
-                        uploadedBy,
-                        ...(doc?.tenantId ? { tenantId: doc.tenantId } : uploadedBy ? { tenantId: uploadedBy } : {}),
-                        ...(landlordId    ? { landlordId }             : {}),
-                        ...(propertyId    ? { propertyId }             : {}),
-                      },
-                    })
-                  ).unwrap();
-                  console.log("✅ signed_document created — fileUrl:", sigPngUrl);
-                } catch (signedDocErr) {
-                  console.warn("⚠️ signed_document creation failed:", signedDocErr.message);
-                }
-              }
-
-              // ── Step 6: Save to AsyncStorage ──────────────────────────
-              // Tenant fast path: sigPngUrl + sigBase64 local fallback
-              try {
-                const storagePayload = JSON.stringify({ sigBase64, signerName, signedAt, sigPngUrl });
-                await AsyncStorage.setItem(`sig_${documentId}`, storagePayload);
-                if (sigPngUrl) {
-                  await AsyncStorage.setItem(`sig_url_${documentId}`, sigPngUrl);
-                }
-                console.log("✅ Signature data saved to AsyncStorage");
-              } catch (storageErr) {
-                console.warn("⚠️ AsyncStorage save failed:", storageErr.message);
-              }
-
-              setSigning(false);
-              Alert.alert(
-                "Document Signed ✓",
-                "Your signature has been submitted and saved. Both you and your landlord can view the signed document.",
-                [
-                  {
-                    text: "OK",
-                    onPress: () => {
-                      dispatch(getDocuments({}));
-                      navigation.goBack();
-                    },
-                  },
-                ]
-              );
-
-            } catch (err) {
-              setSigning(false);
-              console.warn("Sign flow error:", err);
+              sigPngUrl = pngResult.fileUrl || pngResult.url || null;
+              console.log("✅ Signature PNG uploaded to S3:", sigPngUrl);
+            } catch (uploadErr) {
+              console.warn("⚠️ PNG upload failed:", uploadErr.message);
             }
-          },
+
+            if (!sigPngUrl) {
+              Toast.show("Failed to upload signature. Please try again.");
+              setSigning(false);
+              return;
+            }
+
+            // ── Step 4: POST signed_document (only one createDocument call) ──
+            await dispatch(
+              createDocument({
+                documentData: {
+                  type:       "signed_document",
+                  name:       docName,
+                  fileUrl:    sigPngUrl,
+                  status:     "signed",
+                  uploadedBy,
+                  ...(doc?.tenantId ? { tenantId: doc.tenantId } : uploadedBy ? { tenantId: uploadedBy } : {}),
+                  ...(landlordId    ? { landlordId }             : {}),
+                  ...(propertyId    ? { propertyId }             : {}),
+                },
+              })
+            ).unwrap();
+            console.log("✅ signed_document created — fileUrl:", sigPngUrl);
+
+            // ── Step 5: Save to AsyncStorage ──────────────────────────────
+            try {
+              const storagePayload = JSON.stringify({ sigBase64, signerName, signedAt, sigPngUrl });
+              await AsyncStorage.setItem(`sig_${documentId}`, storagePayload);
+              await AsyncStorage.setItem(`sig_url_${documentId}`, sigPngUrl);
+              console.log("✅ Signature saved to AsyncStorage");
+            } catch (storageErr) {
+              console.warn("⚠️ AsyncStorage save failed:", storageErr.message);
+            }
+
+            setSigning(false);
+            Alert.alert(
+              "Document Signed ✓",
+              "Your signature has been submitted and saved.",
+              [
+                {
+                  text: "OK",
+                  onPress: () => {
+                    dispatch(getDocuments({}));
+                    navigation.goBack();
+                  },
+                },
+              ]
+            );
+
+          } catch (err) {
+            setSigning(false);
+            console.warn("Sign flow error:", err);
+          }
         },
-      ]
-    );
-  }, [
-    hasSignature, signatureUri, doc, dispatch,
-    signerName, navigation, resolvedLandlordId, routePropertyId, userData,
-  ]);
+      },
+    ]
+  );
+}, [
+  hasSignature, signatureUri, doc, dispatch,
+  signerName, navigation, resolvedLandlordId, routePropertyId, userData,
+]);
 
   const webStyle = `
     .m-signature-pad { border: none; box-shadow: none; }
@@ -448,24 +396,50 @@ const SignDocumentScreen = () => {
           )}
 
 
-          <View style={styles.signatureWrapper}>
-            <Text style={styles.signatureLabelText}>Your Signature</Text>
-            <View style={styles.signatureBox}>
-              <SignatureCanvas
-                ref={signatureRef}
-                onOK={handleSignatureOK}
-                onBegin={handleBegin}
-                onEmpty={() => setHasSignature(false)}
-                descriptionText="" clearText="" confirmText=""
-                webStyle={webStyle}
-                backgroundColor="transparent"
-                penColor="#1a1a1a"
-                style={styles.canvas}
-              />
-              <View style={styles.signatureLine} />
-              <Text style={styles.signatureHint}>Sign above the line</Text>
-            </View>
-          </View>
+      <View style={styles.signatureWrapper}>
+  <Text style={styles.signatureLabelText}>Your Signature</Text>
+
+  {/* Upload from Gallery button */}
+  <TouchableOpacity
+    style={styles.galleryBtn}
+    onPress={pickSignatureFromGallery}
+    activeOpacity={0.8}
+    disabled={isLoading}
+  >
+    <Text style={styles.galleryBtnText}>🖼️  Upload Signature from Gallery</Text>
+  </TouchableOpacity>
+
+  <View style={styles.signatureBox}>
+    {isGalleryMode && gallerySignatureUri ? (
+      /* Show picked image when in gallery mode */
+      <>
+        <Image
+          source={{ uri: gallerySignatureUri }}
+          style={styles.galleryPreviewImage}
+          resizeMode="contain"
+        />
+        <Text style={styles.galleryHint}>Signature uploaded from gallery</Text>
+      </>
+    ) : (
+      /* Show draw canvas (existing, untouched) */
+      <>
+        <SignatureCanvas
+          ref={signatureRef}
+          onOK={handleSignatureOK}
+          onBegin={handleBegin}
+          onEmpty={() => setHasSignature(false)}
+          descriptionText="" clearText="" confirmText=""
+          webStyle={webStyle}
+          backgroundColor="transparent"
+          penColor="#1a1a1a"
+          style={styles.canvas}
+        />
+        <View style={styles.signatureLine} />
+        <Text style={styles.signatureHint}>Sign above the line</Text>
+      </>
+    )}
+  </View>
+</View>
 
           <View style={styles.signerInfo}>
             <Text style={styles.signerInfoText}>
@@ -562,6 +536,35 @@ mainContent: {
   previewModalClose:  { fontSize: hp(1.7), color: "#666", fontWeight: "500" },
   previewModalTitle:  { flex: 1, textAlign: "center", fontSize: hp(1.9), fontWeight: "700", color: "#1a1a1a" },
   disclaimer:         { fontSize: hp(1.3), color: Colors.textGray, textAlign: "center", lineHeight: hp(1.9), marginTop: hp(0.5) },
+  // ADD inside StyleSheet.create({...}) before the closing })
+galleryBtn: {
+  backgroundColor: "#F3F0FF",
+  borderRadius: 10,
+  paddingVertical: hp(1.3),
+  alignItems: "center",
+  marginBottom: hp(1),
+  borderWidth: 1,
+  borderColor: "#C5B4F5",
+},
+galleryBtnText: {
+  fontSize: hp(1.6),
+  color: "#5C35CC",
+  fontWeight: "600",
+},
+galleryPreviewImage: {
+  flex: 1,
+  width: "100%",
+  height: "85%",
+},
+galleryHint: {
+  position: "absolute",
+  bottom: hp(2),
+  left: 0,
+  right: 0,
+  textAlign: "center",
+  fontSize: hp(1.3),
+  color: "#5C35CC",
+},
 });
 
 export default SignDocumentScreen;

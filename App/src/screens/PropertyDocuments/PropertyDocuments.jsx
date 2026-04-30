@@ -40,7 +40,7 @@ import {
 import { WebView } from "react-native-webview";
 import { Box, Text, VStack, HStack } from "native-base";
 import { useSelector, useDispatch } from "react-redux";
-import { useRoute, useNavigation } from "@react-navigation/native";
+import { useRoute, useNavigation, useFocusEffect  } from "@react-navigation/native";
 import { AppIcon } from "../../components/AppIcon";
 import { icons } from "../../Assets";
 import {
@@ -573,6 +573,16 @@ const PropertyDocuments = () => {
     dispatch(getAllDocumentTemplates({ propertyId, type: selectedType !== "all" ? selectedType : undefined }));
     dispatch(getDocuments({ propertyId }));
   }, [propertyId, selectedType, dispatch]);
+  
+  useFocusEffect(
+  useCallback(() => {
+    dispatch(getAllDocumentTemplates({
+      propertyId,
+      type: selectedType !== "all" ? selectedType : undefined
+    }));
+    dispatch(getDocuments({ propertyId }));
+  }, [dispatch, propertyId, selectedType])
+);
 
   useEffect(() => {
     if (!propertyTenantIds.length) return;
@@ -591,103 +601,106 @@ const PropertyDocuments = () => {
     .filter((d) => selectedType === "all" || (d.type || d.document_type) === selectedType)
     .map((d) => normalizeDoc(d, true));
 
-  const normalizedDocuments = (documents || [])
-    .filter((d) => selectedType === "all" || (d.type || d.document_type) === selectedType)
-    .map((d) => normalizeDoc(d, false));
+const normalizedDocuments = (documents || [])
+  .filter((d) =>
+    selectedType === "all" ||
+    (d.type || d.document_type) === selectedType ||
+    (d.type || d.document_type) === "signed_document"  // ← always keep signed records
+  )
+  .map((d) => normalizeDoc(d, false));
 
-  // ── signed_document records (hold the signature PNG url) ──
-  const signedDocRecords = normalizedDocuments.filter(
-    (d) => d.document_type === 'signed_document' && d.status === 'signed' && d.file_url
-  );
+ // ── signed_document records ───────────────────────────────
+const signedDocRecords = normalizedDocuments.filter(
+  (d) => d.document_type === 'signed_document' && d.status === 'signed' && d.file_url
+);
 
-  // ── Build lookup maps for non-signed_document records ──
-  const signedDocByType = {};
-  const signedDocByName = {};
+// ── Build lookup maps ─────────────────────────────────────
 
-  normalizedDocuments
-    .filter((d) => d.status === 'signed' && d.document_type !== 'signed_document')
-    .forEach((d) => {
-      const storedType = d.document_type;
-      const nameLower  = (d.filename || '').toLowerCase().trim();
-
-      if (!signedDocByType[storedType]) signedDocByType[storedType] = d;
-      const aliases = REVERSE_TYPE_MAP[storedType] || [];
-      aliases.forEach((alias) => {
-        if (!signedDocByType[alias]) signedDocByType[alias] = d;
-      });
-
-      if (nameLower && !signedDocByName[nameLower]) signedDocByName[nameLower] = d;
-    });
-
-  const enrichedTemplates = normalizedTemplates.map((tpl) => {
-    const templateName = (tpl.filename || '').toLowerCase().trim();
-    const templateType = tpl.document_type;
-
-    let sigDocMatch = null;
-
-    if (signedDocRecords.length > 0) {
-      // 1a. Exact name match
-      if (templateName) {
-        sigDocMatch = signedDocRecords.find(
-          (d) => (d.filename || '').toLowerCase().trim() === templateName
-        ) || null;
-      }
-
-      // 1b. Match by original_type / originalType field on the raw record
-      if (!sigDocMatch) {
-        sigDocMatch = signedDocRecords.find((d) => {
-          const origType = d._raw?.originalType || d._raw?.original_type ||
-                           d._raw?.documentType || d._raw?.document_type || '';
-          return origType === templateType;
-        }) || null;
-      }
-
-      // FIX 1c. Fuzzy name match — handles null/empty template names from Shape C.
-      // If the template name is empty (common with Shape C), try matching by type alias.
-      if (!sigDocMatch && !templateName) {
-        // Template has no name — check if there is a signed original doc of the same type.
-        const originalSigned = signedDocByType[templateType];
-        if (originalSigned && signedDocRecords.length === 1) {
-          // Only one signed_document record exists — it must be this one.
-          sigDocMatch = signedDocRecords[0];
-        }
-      }
-
-      // 1d. Single signed_document record: attach if original doc is also signed
-      if (!sigDocMatch && signedDocRecords.length === 1) {
-        const originalSigned = signedDocByType[templateType] || signedDocByName[templateName];
-        if (originalSigned) {
-          sigDocMatch = signedDocRecords[0];
-        }
-      }
-
-      // 1e. Multiple records: fuzzy-match by name prefix (keep existing logic)
-      if (!sigDocMatch && signedDocRecords.length > 1) {
-        const originalSigned = signedDocByType[templateType] || signedDocByName[templateName];
-        if (originalSigned) {
-          sigDocMatch = signedDocRecords.find(
-            (d) => templateName && (d.filename || '').toLowerCase().includes(templateName.substring(0, 6))
-          ) || null;
-
-          // FIX 1f: Last resort — use the most recently created signed_document record.
-          // Better than showing no signature at all.
-          if (!sigDocMatch) {
-            sigDocMatch = signedDocRecords.sort((a, b) =>
-              new Date(b.created_at || 0) - new Date(a.created_at || 0)
-            )[0] || null;
-            if (sigDocMatch) {
-              console.warn(`[PropertyDocs] Used most-recent signed_document as last-resort match for "${templateName || templateType}"`);
-            }
-          }
-        }
-      }
-    }
-
-    const fallbackSignedDoc = signedDocByType[templateType] || signedDocByName[templateName] || null;
-    const best = sigDocMatch || fallbackSignedDoc || null;
-
-    return { ...tpl, _matchingSignedDoc: best || null };
+// Map 1: original docs directly marked signed (legacy/Step4 flow)
+const signedDocByType = {};
+const signedDocByName = {};
+normalizedDocuments
+  .filter((d) => d.status === 'signed' && d.document_type !== 'signed_document')
+  .forEach((d) => {
+    const storedType = d.document_type;
+    const nameLower  = (d.filename || '').toLowerCase().trim();
+    if (!signedDocByType[storedType]) signedDocByType[storedType] = d;
+    const aliases = REVERSE_TYPE_MAP[storedType] || [];
+    aliases.forEach((a) => { if (!signedDocByType[a]) signedDocByType[a] = d; });
+    if (nameLower && !signedDocByName[nameLower]) signedDocByName[nameLower] = d;
   });
+
+// Map 2: signed_document records indexed by:
+//   a) their filename  e.g. "lease agreement" → record
+//   b) type label      e.g. DOC_TYPE_LABELS["lease_agreement"] = "Lease Agreement"
+const signedDocByLabelName = {};
+signedDocRecords.forEach((d) => {
+  const sigName = (d.filename || '').toLowerCase().trim();
+  if (sigName && sigName !== 'document') {
+    signedDocByLabelName[sigName] = d;
+  }
+});
+
+// ── Match each template to its signed record ──────────────
+const enrichedTemplates = normalizedTemplates.map((tpl) => {
+  const templateName = (tpl.filename || '').toLowerCase().trim();
+  const templateType = tpl.document_type;
+  const typeLabel    = (DOC_TYPE_LABELS[templateType] || '').toLowerCase().trim();
+
+  let sigDocMatch = null;
+
+  // ── Priority 1: original doc directly signed (Step 4 / legacy) ──
+  if (!sigDocMatch) {
+    sigDocMatch = signedDocRecords.find((d) => {
+      const origType = d._raw?.originalType || d._raw?.original_type ||
+                       d._raw?.documentType || d._raw?.document_type || '';
+      return origType === templateType;
+    }) || null;
+  }
+
+  // ── Priority 2: match signed_document by type label ← MAIN FIX ──
+  // e.g. template type "lease_agreement" → typeLabel "lease agreement"
+  //      signed_document name "Lease Agreement" → sigName "lease agreement"  ✅
+  if (!sigDocMatch && typeLabel) {
+    sigDocMatch = signedDocByLabelName[typeLabel] || null;
+  }
+
+  // ── Priority 3: exact filename match ──
+  if (!sigDocMatch && templateName && templateName !== 'document') {
+    sigDocMatch = signedDocByLabelName[templateName] || null;
+  }
+
+  // ── Priority 4: legacy type-based match (Step 4 flow) ──
+  if (!sigDocMatch) {
+    const legacySigned = signedDocByType[templateType] || signedDocByName[templateName] || null;
+    if (legacySigned && signedDocRecords.length > 0) {
+      // Find the signed_document record with the closest name
+      sigDocMatch = signedDocRecords.find(
+        (d) => typeLabel && (d.filename || '').toLowerCase().includes(typeLabel.substring(0, 5))
+      ) || signedDocRecords[0] || null;
+    }
+  }
+
+  // ── Priority 5: only one signed_document exists → attach to matching type ──
+  if (!sigDocMatch && signedDocRecords.length === 1) {
+    const single    = signedDocRecords[0];
+    const sigName   = (single.filename || '').toLowerCase().trim();
+    // Only attach if it plausibly belongs to this template
+    const plausible = sigName === typeLabel          // name matches type label
+                   || sigName === templateName        // name matches template filename
+                   || (!sigName || sigName === 'document'); // has no useful name
+    if (plausible) sigDocMatch = single;
+  }
+
+  const best = sigDocMatch
+    || signedDocByType[templateType]
+    || signedDocByName[templateName]
+    || null;
+
+  return { ...tpl, _matchingSignedDoc: best || null };
+});
+
+  
 
   // IDs of all templates (may be null for Shape C templates from getalldocument)
   const templateIds = new Set(enrichedTemplates.map((d) => d.document_id).filter(Boolean));

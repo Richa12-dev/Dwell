@@ -120,18 +120,23 @@ const buildTemplateList = (raw) => {
   return result;
 };
 
-const normalizeTemplate = (flat, signedStoredDocTypes, signedDocByType = {}) => {
-  const docType = flat.type || flat.document_type || "other";
-  const label   = DOC_TYPE_LABELS[docType] || docType.replace(/_/g, " ");
-  const rawId   = flat.id || flat.documentId || flat.document_id || null;
+const normalizeTemplate = (flat, signedStoredDocTypes, signedDocByType = {}, signedDocByName = {}) => {
+  const docType      = flat.type || flat.document_type || "other";
+  const label        = DOC_TYPE_LABELS[docType] || docType.replace(/_/g, " ");
+  const rawId        = flat.id || flat.documentId || flat.document_id || null;
+  const templateName = (flat.name || flat.filename || flat.title || label).toLowerCase().trim();
 
-  const isMergedSigned = signedStoredDocTypes.has(docType);
+
+  const isMergedSigned = signedStoredDocTypes.has(docType) || !!signedDocByName[templateName];
+  
   const status = isMergedSigned
     ? "signed"
     : (flat.status || "unsigned").toLowerCase();
 
   // For signed docs: get the actual stored doc's URL for Preview
-  const signedDoc      = isMergedSigned ? (signedDocByType[docType] || null) : null;
+  const signedDoc      = isMergedSigned
+    ? (signedDocByType[docType] || signedDocByName[templateName] || null)
+    : null;
   const isRealUrl      = (u) => typeof u === "string" && u.startsWith("http");
 const signedFileUrl = isRealUrl(signedDoc?.fileUrl)    ? signedDoc.fileUrl
                     : isRealUrl(signedDoc?.file_url)   ? signedDoc.file_url
@@ -429,24 +434,31 @@ const REVERSE_TYPE_MAP = {
 };
 
 const signedDocByType = {};
+const signedDocByName = {};
 (documents || [])
   .filter((d) => (d.status || "").toLowerCase() === "signed")
   .forEach((d) => {
     const storedType = d.type || d.document_type || d.documentType;
-    if (!storedType) return;
-    // Index by the stored type itself
-    if (!signedDocByType[storedType]) signedDocByType[storedType] = d;
-    // Also index by all template types that map to this stored type
-    const aliases = REVERSE_TYPE_MAP[storedType] || [];
-    aliases.forEach((alias) => {
-      if (!signedDocByType[alias]) signedDocByType[alias] = d;
-    });
-  });
+    const docName    = (d.name || d.filename || "").toLowerCase().trim();
 
+    if (!storedType) return;
+
+    if (storedType === "signed_document") {
+      // signed_document records: index by name to match against templates
+      if (docName && !signedDocByName[docName]) signedDocByName[docName] = d;
+    } else {
+      // all other types: existing logic unchanged
+      if (!signedDocByType[storedType]) signedDocByType[storedType] = d;
+      const aliases = REVERSE_TYPE_MAP[storedType] || [];
+      aliases.forEach((alias) => {
+        if (!signedDocByType[alias]) signedDocByType[alias] = d;
+      });
+    }
+  });
 const signedStoredDocTypes = new Set(Object.keys(signedDocByType));
 
 const flatTemplates = buildTemplateList(rawTemplates);
-const cards = flatTemplates.map((f) => normalizeTemplate(f, signedStoredDocTypes, signedDocByType));
+const cards = flatTemplates.map((f) => normalizeTemplate(f, signedStoredDocTypes, signedDocByType, signedDocByName));
 
   // Stats
   const total   = cards.length;
