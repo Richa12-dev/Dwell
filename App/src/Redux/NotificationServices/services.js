@@ -22,7 +22,7 @@ export const getNotifications = createAsyncThunk(
       console.log('📡 GET /notifications?', query);
       const res = await authFetch(`${BASE_URL}/notifications?${query}`, { method: 'GET' });
       const data = await parseSafeJSON(res);
-      if (res.ok) return Array.isArray(data) ? data : (data.items || data.notifications || data.data || []);
+        if (res.ok) return data.data || data.items || data.notifications || (Array.isArray(data) ? data : []);
       const msg = data?.message || data?.error || `HTTP ${res.status}`;
       Toast.show(msg); return rejectWithValue(msg);
     } catch (err) {
@@ -59,9 +59,9 @@ export const markNotificationAsRead = createAsyncThunk(
   async ({ notificationId, scheduledForUtc }, { rejectWithValue }) => {
     try {
       if (!notificationId) return rejectWithValue('Notification ID is required.');
-      const res = await authFetch(`${BASE_URL}/notifications/${notificationId}`, {
-        method: 'PATCH', body: JSON.stringify({ isRead: true, scheduled_for_utc: scheduledForUtc }),
-      });
+        const res = await authFetch(`${BASE_URL}/notifications/${notificationId}/read`, {
+          method: 'PATCH',
+        });
       const data = await parseSafeJSON(res);
       if (res.ok) return { notificationId, data };
       return rejectWithValue(data?.message || data?.error || `HTTP ${res.status}`);

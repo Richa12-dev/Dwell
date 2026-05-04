@@ -18,6 +18,7 @@ import {
   uploadProfilePhoto,
   fetchProfilePhoto,
   registerDeviceTokenToServer,
+    unregisterDeviceToken,
  
 } from './loginservices';
 
@@ -219,6 +220,7 @@ const loginSlice = createSlice({
       state.refreshToken = null;
       state.is_logged = false;
       state.isFirstLogin = false;
+        
       // ✅ Count only credential errors, not network/freeze errors
       const msg = (action.payload || '').toLowerCase();
       const isCredErr = msg.includes('invalid') || msg.includes('incorrect') || msg.includes('wrong') || msg.includes('credentials');
@@ -371,13 +373,23 @@ const loginSlice = createSlice({
       
       
       // ── REGISTER DEVICE TOKEN ────────────────────────────────────────
-          builder.addCase(registerDeviceTokenToServer.fulfilled, (state, { payload }) => {
-            state.deviceToken = payload.deviceToken;
-            console.log('✅ deviceToken saved to Redux state');
-          });
-          builder.addCase(registerDeviceTokenToServer.rejected, (state, { payload }) => {
-            console.warn('⚠️ Failed to save device token to state:', payload);
-          });
+      // ✅ KEEP THIS
+      builder.addCase(registerDeviceTokenToServer.fulfilled, (state, action) => {
+        state.deviceToken = action.payload?.deviceToken || null;
+        console.log('✅ deviceToken saved to Redux state');
+      })
+      builder.addCase(registerDeviceTokenToServer.rejected, (state, action) => {
+        console.warn('⚠️ Failed to register device token:', action.payload);
+      })
+      // ── unregisterDeviceToken ─────────────────────────────────────────────
+      builder.addCase(unregisterDeviceToken.fulfilled, (state) => {
+        state.deviceToken = null;
+        console.log('✅ deviceToken cleared from Redux');
+      })
+      builder.addCase(unregisterDeviceToken.rejected, (state, action) => {
+        console.warn('⚠️ Failed to unregister device token:', action.payload);
+      })
+   
             
       
   },

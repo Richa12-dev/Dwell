@@ -658,9 +658,7 @@ const enrichedTemplates = normalizedTemplates.map((tpl) => {
     }) || null;
   }
 
-  // ── Priority 2: match signed_document by type label ← MAIN FIX ──
-  // e.g. template type "lease_agreement" → typeLabel "lease agreement"
-  //      signed_document name "Lease Agreement" → sigName "lease agreement"  ✅
+
   if (!sigDocMatch && typeLabel) {
     sigDocMatch = signedDocByLabelName[typeLabel] || null;
   }

@@ -1,5 +1,5 @@
 // screens/TenantNotification/TenantNotification.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect,  useCallback } from "react";
 import {
   View,
   Text,
@@ -33,6 +33,8 @@ import {
   notificationSelectors,
 } from "../../Redux/NotificationServices/notificationSlice";
 import { loginDataSelectors } from "../../Redux/Login/loginSlice";
+import { getScreenFromNotification } from '../../utils/notificationHelper';
+import { useFocusEffect } from '@react-navigation/native';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 const TenantNotification = ({ navigation }) => {
@@ -44,6 +46,12 @@ const TenantNotification = ({ navigation }) => {
   const loading       = useSelector(notificationSelectors.selectLoading);
   const error         = useSelector(notificationSelectors.selectError);
   const accessToken   = useSelector(loginDataSelectors.getAccessToken);
+  const userData = useSelector((state) => state.loginData?.userData);
+const role = userData?.landlordId
+  ? 'landlord'
+  : userData?.contractorId
+  ? 'contractor'
+  : 'tenant';
 
   // ── Local state ──────────────────────────────────────────────────────────
   const [modalVisible, setModalVisible]   = useState(false);
@@ -55,11 +63,18 @@ const TenantNotification = ({ navigation }) => {
   const [selectedDate, setSelectedDate]   = useState(new Date());
 
   // ── Fetch on mount ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (accessToken) {
+const lastFetch = useSelector(notificationSelectors.selectLastFetch);
+
+useFocusEffect(
+  useCallback(() => {
+    if (!accessToken) return;
+    const isStale = !lastFetch ||
+      (Date.now() - new Date(lastFetch).getTime()) > 30000;
+    if (isStale) {
       dispatch(getNotifications({ filter: "all", limit: 100 }));
     }
-  }, [dispatch, accessToken]);
+  }, [dispatch, accessToken, lastFetch])
+);
 
   // ── Pull-to-refresh ──────────────────────────────────────────────────────
   const onRefresh = async () => {
@@ -141,16 +156,30 @@ const TenantNotification = ({ navigation }) => {
   };
 
   // ── Mark single notification as read ─────────────────────────────────────
-  const handleNotificationPress = (notification) => {
-    if (!notification.read_at) {
-      dispatch(
-        markNotificationAsRead({
-          notificationId:  notification.notification_id,
-          scheduledForUtc: notification.scheduled_for_utc,
-        })
-      );
-    }
+const handleNotificationPress = (notification) => {
+  const notifId = notification.notification_id || notification.id;
+
+  // Mark as read
+  if (!notification.read_at && notifId) {
+    dispatch(markNotificationAsRead({ notificationId: notifId }));
+  }
+
+  // Build data object — handles both local and API notification shapes
+  const data = {
+    ...(notification.data || {}),
+    type:  notification.type  || notification.data?.type,
+    title: notification.title || notification.subject || '',
+    propertyId:    notification.data?.propertyId,
+    maintenanceId: notification.data?.maintenanceId,
+    screen:        notification.data?.screen,
   };
+
+  // Use shared mapper — same logic as App.jsx banner tap
+  const { screen, params } = getScreenFromNotification(data, role);
+  if (screen && screen !== 'TenantNotification') {
+    navigation.navigate(screen, params);
+  }
+};
 
   // ── Mark all as read ─────────────────────────────────────────────────────
   const handleMarkAllRead = () => {
@@ -170,33 +199,37 @@ const TenantNotification = ({ navigation }) => {
 
   // ── Render helpers ────────────────────────────────────────────────────────
   const renderNotification = ({ item }) => (
-    <TouchableOpacity
-      style={[styles.notificationCard, !item.read_at && styles.unreadNotification]}
-      onPress={() => handleNotificationPress(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.iconContainer}>
-        <AppIcon name={icons.dLogo} size={22} />
-      </View>
+  <TouchableOpacity
+    style={[styles.notificationCard, !item.read_at && styles.unreadNotification]}
+    onPress={() => handleNotificationPress(item)}
+    activeOpacity={0.7}
+  >
+    <View style={styles.iconContainer}>
+      <AppIcon name={icons.dLogo} size={22} />
+    </View>
 
-      <View style={styles.textContainer}>
-        <Text style={styles.title}>{item.subject}</Text>
-        <Text style={styles.message} numberOfLines={2}>
-          {item.description}
-        </Text>
-        {item.status && (
-          <Text style={styles.statusText}>Status: {item.status}</Text>
-        )}
-      </View>
+    <View style={styles.textContainer}>
+      {/* ── use title (normalized from subject or title) ── */}
+      <Text style={styles.title}>{item.title || item.subject}</Text>
 
-      <View style={styles.timeContainer}>
-        <Text style={styles.time}>
-          {formatTime(item.scheduled_for_utc || item.created_at)}
-        </Text>
-        {!item.read_at && <View style={styles.unreadDot} />}
-      </View>
-    </TouchableOpacity>
-  );
+      {/* ── use description (normalized from message or description) ── */}
+      <Text style={styles.message} numberOfLines={2}>
+        {item.description || item.message}
+      </Text>
+
+      {item.status && (
+        <Text style={styles.statusText}>Status: {item.status}</Text>
+      )}
+    </View>
+
+    <View style={styles.timeContainer}>
+      <Text style={styles.time}>
+        {formatTime(item.scheduled_for_utc || item.created_at || item.createdAt)}
+      </Text>
+      {!item.read_at && <View style={styles.unreadDot} />}
+    </View>
+  </TouchableOpacity>
+);
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>

@@ -74,6 +74,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    // Forward to RNCPushNotificationIOS — fires JS 'notification' event
+    // with foreground=true (delivery). The JS guard skips navigation here.
+    let userInfo = notification.request.content.userInfo
+    RNCPushNotificationIOS.didReceiveRemoteNotification(userInfo)
+
+    // Show banner + sound + badge even when app is open
     completionHandler([.alert, .badge, .sound])
   }
 
@@ -84,6 +90,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   ) {
     let userInfo = response.notification.request.content.userInfo
     print("[APNs] Notification tapped: \(userInfo)")
+
+    // ✅ KEY FIX — forwards tap to RNCPushNotificationIOS
+    // This triggers JS addEventListener('notification') with foreground=false
+    // so the navigation guard runs and opens the correct screen
+      RNCPushNotificationIOS.didReceive(response)
+
+    // Keep custom module for any other JS listeners
     APNsTokenModule.shared.sendNotificationTapToJS(userInfo)
     completionHandler()
   }
@@ -94,7 +107,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
   ) {
     print("[APNs] Background notification received")
-    completionHandler(.newData)
+    // Forward to RNCPushNotificationIOS for proper background fetch handling
+    RNCPushNotificationIOS.didReceiveRemoteNotification(userInfo, fetchCompletionHandler: completionHandler)
   }
 }
 

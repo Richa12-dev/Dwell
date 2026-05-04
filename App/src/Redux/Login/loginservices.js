@@ -901,12 +901,27 @@ export const fetchProfilePhoto = createAsyncThunk(
  
 export const registerDeviceTokenToServer = createAsyncThunk(
   'loginSlice/registerDeviceTokenToServer',
-  async ({ deviceToken, userId, platform, deviceModel, appVersion }, { rejectWithValue }) => {
+  async ({ deviceToken, userId, platform, deviceModel, appVersion, apnsEnv  }, { rejectWithValue }) => {
     try {
       if (!deviceToken) return rejectWithValue('Device token is missing');
       if (!userId)      return rejectWithValue('User ID is required to register device token');
  
       console.log('📲 Registering device token for userId:', userId);
+        console.log('🧹 [Step 1] Cleaning duplicate token entries...');
+              try {
+                const deleteRes = await authFetch(
+                  `${base_url}/notifications/device-token/${deviceToken}`,
+                  { method: 'DELETE' }
+                );
+                console.log('✅ [Step 1] Old token entry cleaned:', deleteRes.status);
+              } catch (e) {
+                // Don't block registration if delete fails
+                console.warn('⚠️ [Step 1] Pre-clean skipped:', e.message);
+              }
+
+              // ── Small wait to ensure DELETE commits ───────────────────────
+              await new Promise(resolve => setTimeout(resolve, 500));
+
  
       // ✅ authFetch automatically attaches the Bearer token from Redux
       const response = await authFetch(`${base_url}/notifications/device-token`, {
@@ -923,7 +938,8 @@ export const registerDeviceTokenToServer = createAsyncThunk(
       const data = await safeJson(response);
  
       if (response.ok) {
-        console.log('✅ Device token registered on server successfully');
+          console.log('✅ [Step 2] Token registered. userId:', userId);
+          console.log('✅ [Step 2] Token preview:', deviceToken?.substring(0, 16) + '...');
         return { deviceToken };
       }
  
@@ -933,6 +949,30 @@ export const registerDeviceTokenToServer = createAsyncThunk(
     } catch (err) {
       console.error('❌ registerDeviceTokenToServer error:', err);
       return rejectWithValue(err.message || 'Network error registering device token');
+    }
+  }
+);
+
+export const unregisterDeviceToken = createAsyncThunk(
+  'login/unregisterDeviceToken',
+  async (deviceToken, { rejectWithValue }) => {
+    try {
+      if (!deviceToken) return rejectWithValue('Device token is required.');
+
+        const res = await authFetch(
+          `${base_url}/notifications/device-token/${deviceToken}`,
+        { method: 'DELETE' }
+      );
+
+      if (res.ok) {
+        console.log('✅ Device token unregistered successfully');
+        return { deviceToken };
+      }
+
+      const data = await parseSafeJSON(res);
+      return rejectWithValue(data?.message || `HTTP ${res.status}`);
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to unregister device token');
     }
   }
 );

@@ -51,11 +51,9 @@ const toFullImageUrl = (photo) => {
   }
   if (typeof photo === 'string') {
     if (photo.startsWith('http://') || photo.startsWith('https://')) {
-      return photo.split('?')[0]; // strip presigned params, keep clean S3 URL
+      return photo.split('?')[0];
     }
     if (photo.startsWith('data:')) return photo;
-    // Plain filename stored in DB (e.g. "UUID.jpg") — pass through so
-    // useSignedImageUrls can sign it via GET /s3/download-url
     if (photo.match(/\.(jpg|jpeg|png|webp|gif|heic)$/i)) return photo;
   }
   return null;
@@ -77,7 +75,6 @@ const normalizePropertyImages = (property) => {
 const normalizeProperty = (raw) => {
   if (!raw) return raw;
 
-  // ─── Build amenities array from all boolean flags ─────────────────────
   const AMENITY_MAP = [
     { key: 'isFurnished',         label: 'Furnished' },
     { key: 'hasParking',          label: 'Parking' },
@@ -157,7 +154,6 @@ const normalizeProperty = (raw) => {
     availability:       raw.availabilityStatus,
     is_available: raw.availabilityStatus === 'vacant' || raw.availabilityStatus === 'available soon',
 
-    // ─── All boolean amenity flags (kept for backward compat) ──────────
     isFurnished:          raw.isFurnished          ?? false,
     hasParking:           raw.hasParking           ?? false,
     hasElevator:          raw.hasElevator          ?? false,
@@ -201,13 +197,11 @@ const normalizeProperty = (raw) => {
     wheelchairAccess:     raw.wheelchairAccess      ?? false,
     adaCompliant:         raw.adaCompliant          ?? false,
 
-    // ✅ Pre-built label array — PropertiesDetails renders this directly
     amenities: amenitiesArray,
 
-    // ─── Tenant fields ──────────────────────────────────────────────────
     tenantId:    raw.tenantId  || null,
     tenant_id:   raw.tenantId  || null,
-    tenant_ids:  raw.tenantId  ? [raw.tenantId]   : [],   // ✅ FIX Bug 2
+    tenant_ids:  raw.tenantId  ? [raw.tenantId]   : [],
     tenant_names: raw.tenantName ? [raw.tenantName] : [],
     tenant_emails: [],
     tenantPhone: raw.tenantPhone || raw.tenant_phone || null,
@@ -219,7 +213,7 @@ const normalizeProperty = (raw) => {
     landlordId:  raw.landlordId,
     landlord_id: raw.landlordId,
     createdAt:   raw.createdAt,
-    created_at:  raw.createdAt,   // ✅ FIX — details screen uses created_at
+    created_at:  raw.createdAt,
     updatedAt:   raw.updatedAt,
     images:      raw.images     || raw.image_urls || [],
     image_urls:  raw.image_urls || raw.images     || [],
@@ -227,6 +221,7 @@ const normalizeProperty = (raw) => {
 
   return normalizePropertyImages(normalized);
 };
+
 // ─────────────────────────────────────────────────────────────
 // Helper: map form data → CreatePropertyDto / UpdatePropertyDto
 // ─────────────────────────────────────────────────────────────
@@ -239,7 +234,6 @@ const buildNodeApiPayload = (propertyData, landlordId, processedImages) => {
   else { const num = parseInt(rawBedrooms) || 0; bedroomEnum = num >= 5 ? '5+ bhk' : (bedroomMap[num] || 'studio'); }
 
   const availMap = {
-    // UI labels → backend enum values
     'Available':           'vacant',
     'available':           'vacant',
     'Vacant':              'vacant',
@@ -258,14 +252,12 @@ const buildNodeApiPayload = (propertyData, landlordId, processedImages) => {
     propertyData.availability_status || propertyData.availabilityStatus || propertyData.availability || 'vacant';
   const availabilityStatus = availMap[rawAvailability] || rawAvailability.toLowerCase() || 'vacant';
 
-  // Only include tenant invite if BOTH name and phone are provided
   const tenantsArray = [];
   const tenantName   = (propertyData.tenantName  || propertyData.tenant_name  || '').trim();
-    const rawPhone = (propertyData.tenantPhone || propertyData.tenant_phone || '').trim();
-
-    const tenantPhone = rawPhone
-      ? rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`
-      : '';
+  const rawPhone     = (propertyData.tenantPhone || propertyData.tenant_phone || '').trim();
+  const tenantPhone  = rawPhone
+    ? rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`
+    : '';
   if (tenantName && tenantPhone) {
     tenantsArray.push({ name: tenantName, phone: tenantPhone });
   }
@@ -277,11 +269,11 @@ const buildNodeApiPayload = (propertyData, landlordId, processedImages) => {
     streetAddress:   propertyData.streetAddress || propertyData.street || '',
     city:            propertyData.city  || '',
     state:           propertyData.state || '',
-      zipCode:       propertyData.zipCode       || propertyData.zip_code       || propertyData.zipcode || '',
-      postalCode:    propertyData.zipCode       || propertyData.postalCode     || propertyData.zip_code || '',
-      country:       propertyData.country       || 'USA',
-      latitude:  typeof propertyData.latitude  === 'number' ? propertyData.latitude  : 0,
-      longitude: typeof propertyData.longitude === 'number' ? propertyData.longitude : 0,
+    zipCode:         propertyData.zipCode    || propertyData.zip_code    || propertyData.zipcode || '',
+    postalCode:      propertyData.zipCode    || propertyData.postalCode  || propertyData.zip_code || '',
+    country:         propertyData.country    || 'USA',
+    latitude:        typeof propertyData.latitude  === 'number' ? propertyData.latitude  : 0,
+    longitude:       typeof propertyData.longitude === 'number' ? propertyData.longitude : 0,
     timezone:        propertyData.timezone || 'America/New_York',
     propertyType:    (propertyData.propertyType || propertyData.property_type || 'apartment').toLowerCase(),
     bedrooms:        bedroomEnum,
@@ -290,61 +282,55 @@ const buildNodeApiPayload = (propertyData, landlordId, processedImages) => {
     yearBuilt:       parseInt(propertyData.yearBuilt || propertyData.year_built) || null,
     monthlyRent:     parseFloat(propertyData.monthlyRent || propertyData.monthly_rent) || 0,
     securityDeposit: parseFloat(propertyData.securityDeposit || propertyData.security_deposit) || 0,
-    
     availabilityStatus,
     images:          processedImages,
-      tenants: tenantsArray,
-      
-      // ─── All amenities: form snake_case → backend camelCase ───────────────
-        isFurnished:          propertyData.amenities?.furnished          ?? propertyData.isFurnished          ?? false,
-        hasParking:           propertyData.amenities?.parking            ?? propertyData.hasParking            ?? false,
-        hasElevator:          propertyData.amenities?.elevator           ?? propertyData.hasElevator           ?? false,
-        ac:                   propertyData.amenities?.ac                 ?? false,
-        gym:                  propertyData.amenities?.gym                ?? false,
-        pool:                 propertyData.amenities?.pool               ?? false,
-        washerDryer:          propertyData.amenities?.washer_dryer       ?? false,
-        dishwasher:           propertyData.amenities?.dishwasher         ?? false,
-        fireplace:            propertyData.amenities?.fireplace          ?? false,
-        hardwoodFloors:       propertyData.amenities?.hardwood_floors    ?? false,
-        highCeilings:         propertyData.amenities?.high_ceilings      ?? false,
-        smartThermostat:      propertyData.amenities?.smart_thermostat   ?? false,
-        cableReady:           propertyData.amenities?.cable_ready        ?? false,
-        refrigerator:         propertyData.amenities?.refrigerator       ?? false,
-        microwave:            propertyData.amenities?.microwave          ?? false,
-        garbageDisposal:      propertyData.amenities?.garbage_disposal   ?? false,
-        stainlessAppliances:  propertyData.amenities?.stainless_appliances ?? false,
-      highSpeedInternet:    propertyData.amenities?.high_speed_internet ?? false,
-       smartLocks:           propertyData.amenities?.smart_locks        ?? false,
-       videoDoorbell:        propertyData.amenities?.video_doorbell     ?? false,
-       keylessEntry:         propertyData.amenities?.keyless_entry      ?? false,
-       garage:               propertyData.amenities?.garage             ?? false,
-       coveredParking:       propertyData.amenities?.covered_parking    ?? false,
-       evCharging:           propertyData.amenities?.ev_charging        ?? false,
-       petFriendly:          propertyData.amenities?.pet_friendly       ?? false,
-       catsAllowed:          propertyData.amenities?.cats_allowed       ?? false,
-       dogsAllowed:          propertyData.amenities?.dogs_allowed       ?? false,
-       clubhouse:            propertyData.amenities?.clubhouse          ?? false,
-       businessCenter:       propertyData.amenities?.business_center    ?? false,
-       packageReceiving:     propertyData.amenities?.package_receiving  ?? false,
-       controlledAccess:     propertyData.amenities?.controlled_access  ?? false,
-       balcony:              propertyData.amenities?.balcony            ?? false,
-       bbqArea:              propertyData.amenities?.bbq_area           ?? false,
-       dogPark:              propertyData.amenities?.dog_park           ?? false,
-       playground:           propertyData.amenities?.playground         ?? false,
-      securitySystem:       propertyData.amenities?.security_system    ?? false,
-        cctv:                 propertyData.amenities?.cctv               ?? false,
-        onSiteMaintenance:    propertyData.amenities?.on_site_maintenance ?? false,
-        trashPickup:          propertyData.amenities?.trash_pickup       ?? false,
-        shortTermLease:       propertyData.amenities?.short_term_lease   ?? false,
-        wheelchairAccess:     propertyData.amenities?.wheelchair_access  ?? false,
-        adaCompliant:         propertyData.amenities?.ada_compliant      ?? false,
-      };
+    tenants:         tenantsArray,
 
+    isFurnished:          propertyData.amenities?.furnished            ?? propertyData.isFurnished          ?? false,
+    hasParking:           propertyData.amenities?.parking              ?? propertyData.hasParking            ?? false,
+    hasElevator:          propertyData.amenities?.elevator             ?? propertyData.hasElevator           ?? false,
+    ac:                   propertyData.amenities?.ac                   ?? false,
+    gym:                  propertyData.amenities?.gym                  ?? false,
+    pool:                 propertyData.amenities?.pool                 ?? false,
+    washerDryer:          propertyData.amenities?.washer_dryer         ?? false,
+    dishwasher:           propertyData.amenities?.dishwasher           ?? false,
+    fireplace:            propertyData.amenities?.fireplace            ?? false,
+    hardwoodFloors:       propertyData.amenities?.hardwood_floors      ?? false,
+    highCeilings:         propertyData.amenities?.high_ceilings        ?? false,
+    smartThermostat:      propertyData.amenities?.smart_thermostat     ?? false,
+    cableReady:           propertyData.amenities?.cable_ready          ?? false,
+    refrigerator:         propertyData.amenities?.refrigerator         ?? false,
+    microwave:            propertyData.amenities?.microwave            ?? false,
+    garbageDisposal:      propertyData.amenities?.garbage_disposal     ?? false,
+    stainlessAppliances:  propertyData.amenities?.stainless_appliances ?? false,
+    highSpeedInternet:    propertyData.amenities?.high_speed_internet  ?? false,
+    smartLocks:           propertyData.amenities?.smart_locks          ?? false,
+    videoDoorbell:        propertyData.amenities?.video_doorbell       ?? false,
+    keylessEntry:         propertyData.amenities?.keyless_entry        ?? false,
+    garage:               propertyData.amenities?.garage               ?? false,
+    coveredParking:       propertyData.amenities?.covered_parking      ?? false,
+    evCharging:           propertyData.amenities?.ev_charging          ?? false,
+    petFriendly:          propertyData.amenities?.pet_friendly         ?? false,
+    catsAllowed:          propertyData.amenities?.cats_allowed         ?? false,
+    dogsAllowed:          propertyData.amenities?.dogs_allowed         ?? false,
+    clubhouse:            propertyData.amenities?.clubhouse            ?? false,
+    businessCenter:       propertyData.amenities?.business_center      ?? false,
+    packageReceiving:     propertyData.amenities?.package_receiving    ?? false,
+    controlledAccess:     propertyData.amenities?.controlled_access    ?? false,
+    balcony:              propertyData.amenities?.balcony              ?? false,
+    bbqArea:              propertyData.amenities?.bbq_area             ?? false,
+    dogPark:              propertyData.amenities?.dog_park             ?? false,
+    playground:           propertyData.amenities?.playground           ?? false,
+    securitySystem:       propertyData.amenities?.security_system      ?? false,
+    cctv:                 propertyData.amenities?.cctv                 ?? false,
+    onSiteMaintenance:    propertyData.amenities?.on_site_maintenance  ?? false,
+    trashPickup:          propertyData.amenities?.trash_pickup         ?? false,
+    shortTermLease:       propertyData.amenities?.short_term_lease     ?? false,
+    wheelchairAccess:     propertyData.amenities?.wheelchair_access    ?? false,
+    adaCompliant:         propertyData.amenities?.ada_compliant        ?? false,
+  };
 
-  // Only attach tenants when both name AND phone are present
   if (tenantsArray.length > 0) payload.tenants = tenantsArray;
-
-  // Strip nullish optional fields to avoid backend validation errors
   if (!payload.yearBuilt) delete payload.yearBuilt;
 
   return payload;
@@ -359,15 +345,12 @@ const safeJsonParse = async (response, fallback = {}) => {
   try { return JSON.parse(await response.text()); } catch { return fallback; }
 };
 
-
-
 // ─────────────────────────────────────────────────────────────
 // Step 1 — get a presigned upload URL from the backend
 // ─────────────────────────────────────────────────────────────
 const getSignedUrl = async (fileName, token) => {
   try {
     console.log('🔑 Getting signed URL for:', fileName);
-
     const response = await authFetch(`${BASE_URL}/s3/upload-url`, {
       method:  'POST',
       headers: {
@@ -376,19 +359,16 @@ const getSignedUrl = async (fileName, token) => {
       },
       body: JSON.stringify({
         fileName,
-        contentType: 'image/jpeg', // must match the PUT header below
-        folder:      'uploads',    // ✅ always 'uploads'
+        contentType: 'image/jpeg',
+        folder:      'uploads',
         expiresIn:   3600,
       }),
     });
-
     const data = await response.json();
-
     if (!response.ok) {
       console.error('❌ Signed URL error:', response.status, data?.message);
       return null;
     }
-
     console.log('✅ Signed URL received — fileUrl:', data.fileUrl);
     return { uploadUrl: data.uploadUrl, fileUrl: data.fileUrl };
   } catch (error) {
@@ -399,36 +379,23 @@ const getSignedUrl = async (fileName, token) => {
 
 // ─────────────────────────────────────────────────────────────
 // Step 2 — upload file to S3 using the presigned URL
-//
-// fetch(fileUri) turns a local file:// URI into a Blob.
-// We PUT the Blob directly — zero encoding needed.
-// Content-Type MUST match what was sent to /s3/upload-url.
 // ─────────────────────────────────────────────────────────────
 const uploadToS3 = async (fileUri, uploadUrl, contentType = 'image/jpeg') => {
   try {
     console.log('📤 Fetching blob from:', fileUri.substring(0, 60));
-
-    // Convert local URI → Blob (React Native fetch supports file:// URIs)
     const fileResponse = await fetch(fileUri);
     const blob         = await fileResponse.blob();
-
     console.log('📦 Blob — size:', blob.size, 'bytes | type:', blob.type);
-
-    // PUT blob directly to S3 presigned URL
     const result = await fetch(uploadUrl, {
       method:  'PUT',
-      headers: {
-        'Content-Type': contentType, // MUST match the contentType sent to /s3/upload-url
-      },
-      body: blob,
+      headers: { 'Content-Type': contentType },
+      body:    blob,
     });
-
     if (!result.ok) {
       const errorText = await result.text();
       console.error('❌ S3 PUT failed:', result.status, errorText.substring(0, 300));
       throw new Error(`S3 upload failed (${result.status})`);
     }
-
     console.log('✅ S3 upload successful');
     return true;
   } catch (error) {
@@ -439,58 +406,38 @@ const uploadToS3 = async (fileUri, uploadUrl, contentType = 'image/jpeg') => {
 
 // ─────────────────────────────────────────────────────────────
 // Step 3 — full single-file upload flow
-// Returns the permanent S3 fileUrl, or null on failure
 // ─────────────────────────────────────────────────────────────
 const handleSingleUpload = async (file, token) => {
-  // file = { uri: string, type: string, fileName: string }
   const signedData = await getSignedUrl(file.fileName, token);
   if (!signedData) return null;
-
   const { uploadUrl, fileUrl } = signedData;
   const success = await uploadToS3(file.uri, uploadUrl, file.type || 'image/jpeg');
-
   if (!success) return null;
-
   console.log('🎉 File available at:', fileUrl);
   return fileUrl;
 };
 
 // ─────────────────────────────────────────────────────────────
 // Main orchestrator — upload all local images, return fileUrls[]
-//
-// • Already-remote https:// URLs are passed through unchanged (edit mode)
-// • Local file:// URIs go through getSignedUrl → uploadToS3
-// • onProgress(imageIndex, totalImages) — optional UI callback
 // ─────────────────────────────────────────────────────────────
 export const processPropertyImages = async (images, token, onProgress) => {
   console.log('🖼️  processPropertyImages — total:', images?.length ?? 0);
-
   if (!Array.isArray(images) || images.length === 0) return [];
   if (!token) { console.error('❌ No token'); return []; }
 
   const remoteUrls = [];
   const localFiles = [];
-    
-   
 
-    for (const uri of images.slice(0, 9)) {
-      if (typeof uri !== 'string') continue;
-
-      if (uri.startsWith('http://') || uri.startsWith('https://')) {
-        // ✅ Strip presigned query params — keep only the clean permanent S3 URL
-        // Presigned URLs look like: https://...s3.amazonaws.com/uploads/file.jpg?X-Amz-Algorithm=...
-        try {
-          const clean = uri.split('?')[0];
-          remoteUrls.push(clean);
-        } catch {
-          remoteUrls.push(uri);
-        }
-      } else {
-        const rawName  = uri.split('/').pop().split('?')[0] || `img-${Date.now()}`;
-        const fileName = rawName.replace(/\.(heic|heif|jpeg|jpg|png|webp|gif)$/i, '') + '.jpg';
-        localFiles.push({ uri, type: 'image/jpeg', fileName });
-      }
+  for (const uri of images.slice(0, 9)) {
+    if (typeof uri !== 'string') continue;
+    if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      try { remoteUrls.push(uri.split('?')[0]); } catch { remoteUrls.push(uri); }
+    } else {
+      const rawName  = uri.split('/').pop().split('?')[0] || `img-${Date.now()}`;
+      const fileName = rawName.replace(/\.(heic|heif|jpeg|jpg|png|webp|gif)$/i, '') + '.jpg';
+      localFiles.push({ uri, type: 'image/jpeg', fileName });
     }
+  }
 
   if (localFiles.length === 0) {
     console.log('  → No local files, returning remote URLs as-is');
@@ -498,14 +445,11 @@ export const processPropertyImages = async (images, token, onProgress) => {
   }
 
   const uploadedUrls = [];
-
   for (let i = 0; i < localFiles.length; i++) {
     const file = localFiles[i];
     console.log(`\n📤 [${i + 1}/${localFiles.length}] Uploading: ${file.fileName}`);
     onProgress && onProgress(i, localFiles.length);
-
     const fileUrl = await handleSingleUpload(file, token);
-
     if (fileUrl) {
       uploadedUrls.push(fileUrl);
     } else {
@@ -513,10 +457,8 @@ export const processPropertyImages = async (images, token, onProgress) => {
       Toast.show(`Warning: Image ${i + 1} could not be uploaded`);
     }
   }
-
   onProgress && onProgress(localFiles.length, localFiles.length);
   console.log(`\n📊 Summary: ${uploadedUrls.length}/${localFiles.length} succeeded`);
-
   return [...remoteUrls, ...uploadedUrls];
 };
 
@@ -534,54 +476,44 @@ export const transformPropertyImages = (property) => {
 // ═════════════════════════════════════════════════════════════
 export const geocodeAddress = async (address) => {
   if (!address?.trim()) throw new Error('Address is required');
-
   const controller = new AbortController();
   const timeoutId  = setTimeout(() => controller.abort(), 8000);
-
-    try {
-        const url = `${GEOCODING_BASE_URL}?address=${encodeURIComponent(address.trim())}&key=${GEOCODING_API_KEY}`;
-        const response = await fetch(url, { method: 'GET', signal: controller.signal });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) throw new Error(`Geocoding failed: ${response.status}`);
-        const data = await response.json();
-        
-        if (data.status !== 'OK' || !data.results?.[0]) {
-            return { isValid: false };
-        }
-        
-        const result       = data.results[0];
-        const components   = result.address_components || [];
-        
-        // ── Helper to extract a component by type ──
-        const get = (type) =>
-        components.find(c => c.types.includes(type))?.long_name || '';
-        const getShort = (type) =>
-        components.find(c => c.types.includes(type))?.short_name || '';
-        
-        return {
-            isValid:           true,
-            formatted_address: result.formatted_address,
-            lat:               result.geometry.location.lat,
-            lng:               result.geometry.location.lng,
-            // ✅ These are what AddPropertiesScreen now reads:
-            country:           getShort('country') === 'US' ? 'USA' : get('country'),
-            postalCode:        get('postal_code'),
-            city:              get('locality')              || get('sublocality'),
-            state:             get('administrative_area_level_1'),
-            street:            `${get('street_number')} ${get('route')}`.trim(),
-        };
-    }catch (error) {
+  try {
+    const url      = `${GEOCODING_BASE_URL}?address=${encodeURIComponent(address.trim())}&key=${GEOCODING_API_KEY}`;
+    const response = await fetch(url, { method: 'GET', signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!response.ok) throw new Error(`Geocoding failed: ${response.status}`);
+    const data = await response.json();
+    if (data.status !== 'OK' || !data.results?.[0]) return { isValid: false };
+    const result     = data.results[0];
+    const components = result.address_components || [];
+    const get        = (type) => components.find(c => c.types.includes(type))?.long_name  || '';
+    const getShort   = (type) => components.find(c => c.types.includes(type))?.short_name || '';
+    return {
+      isValid:           true,
+      formatted_address: result.formatted_address,
+      lat:               result.geometry.location.lat,
+      lng:               result.geometry.location.lng,
+      country:           getShort('country') === 'US' ? 'USA' : get('country'),
+      postalCode:        get('postal_code'),
+      city:              get('locality') || get('sublocality'),
+      state:             get('administrative_area_level_1'),
+      street:            `${get('street_number')} ${get('route')}`.trim(),
+    };
+  } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') throw new Error('Address verification timed out.');
     throw error;
-        return { isValid: false };
   }
 };
 
 // ═════════════════════════════════════════════════════════════
-// PLACES AUTOCOMPLETE
-// Returns up to 5 address predictions for the given input text.
+// PLACES AUTOCOMPLETE  (New Places API v1)
+//
+// ✅ FIX: We now pass the raw suggestion objects through directly,
+//    keeping BOTH the legacy-compatible fields AND the original
+//    placePrediction shape. This way AddressAutoComplete's helpers
+//    (getPlaceId / getMainText) always find what they need.
 // ═════════════════════════════════════════════════════════════
 export const fetchAddressSuggestions = async (input) => {
   if (!input || input.trim().length < 3) return [];
@@ -595,35 +527,42 @@ export const fetchAddressSuggestions = async (input) => {
       {
         method: 'POST',
         headers: {
-          'Content-Type':     'application/json',
-          'X-Goog-Api-Key':   GEOCODING_API_KEY,
+          'Content-Type':   'application/json',
+          'X-Goog-Api-Key': GEOCODING_API_KEY,
         },
-        body: JSON.stringify({
-          input:         input.trim(),
-          languageCode:  'en',
-        }),
+        body: JSON.stringify({ input: input.trim(), languageCode: 'en' }),
         signal: controller.signal,
       }
     );
     clearTimeout(timeoutId);
 
     const data = await response.json();
-    console.log('[Autocomplete] new API response:', JSON.stringify(data).slice(0, 200));
+    console.log('[Autocomplete] raw response:', JSON.stringify(data).slice(0, 300));
 
     if (!Array.isArray(data.suggestions)) return [];
 
-    // Map new shape → same shape the component expects
     return data.suggestions
       .filter(s => s.placePrediction)
       .slice(0, 10)
-      .map(s => ({
-        place_id:    s.placePrediction.placeId,
-        description: s.placePrediction.text?.text || '',
-        structured_formatting: {
-          main_text:      s.placePrediction.structuredFormat?.mainText?.text      || s.placePrediction.text?.text || '',
-          secondary_text: s.placePrediction.structuredFormat?.secondaryText?.text || '',
-        },
-      }));
+      .map(s => {
+        const pred          = s.placePrediction;
+        const placeId       = pred.placeId || pred.place?.replace('places/', '') || '';
+        const fullText      = pred.text?.text || '';
+        const mainText      = pred.structuredFormat?.mainText?.text      || fullText;
+        const secondaryText = pred.structuredFormat?.secondaryText?.text || '';
+
+        return {
+          // ── Legacy-compatible fields (used by keyExtractor + display) ──
+          place_id:    placeId,
+          description: fullText,
+          structured_formatting: {
+            main_text:      mainText,
+            secondary_text: secondaryText,
+          },
+          // ── Keep original shape so component helpers also work ──────────
+          placePrediction: pred,
+        };
+      });
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') console.warn('[Autocomplete] timed out');
@@ -633,61 +572,63 @@ export const fetchAddressSuggestions = async (input) => {
 };
 
 // ═════════════════════════════════════════════════════════════
-// PLACE DETAILS
-// Given a place_id, returns parsed street / city / state / zip.
+// PLACE DETAILS  (New Places API v1)
+//
+// ✅ FIX 1: FieldMask now includes 'location' so lat/lng can be
+//    forwarded to the property form for accurate geocoding.
+//
+// ✅ FIX 2: Added 'postal_town' fallback for UK/EU addresses where
+//    'locality' is absent (e.g. "High Wycombe, UK" returns
+//    postal_town instead of locality).
+//
+// ✅ FIX 3: Added 'administrative_area_level_2' as a city fallback
+//    for addresses that have no locality at all.
+//
+// ✅ FIX 4: Returns empty strings (never undefined/null) so the
+//    component can safely render the values in TextInput.
 // ═════════════════════════════════════════════════════════════
-export const fetchPlaceDetails = async (placeId, preloadedComponents = null) => {
-  if (preloadedComponents) {
-    const parts    = preloadedComponents;
-    const get      = (type) => parts.find(c => c.types?.includes(type))?.long_name  || '';
-    const getShort = (type) => parts.find(c => c.types?.includes(type))?.short_name || '';
-    const streetNum = get('street_number');
-    const route     = get('route');
-    return {
-      street:   streetNum && route ? `${streetNum} ${route}` : (route || ''),
-      city:     get('locality') || get('sublocality_level_1') || get('administrative_area_level_2'),
-      state:    getShort('administrative_area_level_1'),
-      zip_code: get('postal_code'),
-    };
-  }
-
+export const fetchPlaceDetails = async (placeId) => {
   if (!placeId) return null;
+
+  // ✅ Always strip 'places/' prefix — handle both formats
+  const cleanId = placeId.replace(/^places\//, '');
 
   const controller = new AbortController();
   const timeoutId  = setTimeout(() => controller.abort(), 6000);
 
   try {
-    // ✅ Strip 'places/' prefix if already included in placeId
-    const cleanId = placeId.replace(/^places\//, '');
-
     const response = await fetch(
       `https://places.googleapis.com/v1/places/${cleanId}`,
       {
-        method: 'GET',
+        method:  'GET',
         headers: {
           'Content-Type':     'application/json',
           'X-Goog-Api-Key':   GEOCODING_API_KEY,
-          'X-Goog-FieldMask': 'addressComponents',
+          // ✅ FIX: also request location so lat/lng is available
+          'X-Goog-FieldMask': 'addressComponents,location',
         },
         signal: controller.signal,
       }
     );
     clearTimeout(timeoutId);
 
-    const data = await response.json();
-
-    // ✅ Log to confirm shape
-    console.log('[PlaceDetails] status:', response.status);
-    console.log('[PlaceDetails] raw:', JSON.stringify(data).slice(0, 400));
-
-    const parts = data.addressComponents || [];
-
-    if (parts.length === 0) {
-      console.warn('[PlaceDetails] addressComponents is empty — check FieldMask or placeId');
+    if (!response.ok) {
+      console.warn('[PlaceDetails] HTTP error:', response.status);
       return null;
     }
 
-    // New Places API uses longText/shortText instead of long_name/short_name
+    const data = await response.json();
+    console.log('[PlaceDetails] raw:', JSON.stringify(data).slice(0, 500));
+
+    const parts = data.addressComponents;
+
+    // ✅ Guard: if no address components returned, bail gracefully
+    if (!Array.isArray(parts) || parts.length === 0) {
+      console.warn('[PlaceDetails] addressComponents empty for placeId:', cleanId);
+      return null;
+    }
+
+    // New Places API uses longText / shortText (not long_name / short_name)
     const get      = (type) => parts.find(c => c.types?.includes(type))?.longText  || '';
     const getShort = (type) => parts.find(c => c.types?.includes(type))?.shortText || '';
 
@@ -695,18 +636,29 @@ export const fetchPlaceDetails = async (placeId, preloadedComponents = null) => 
     const route     = get('route');
 
     const result = {
-      street:   streetNum && route
-                  ? `${streetNum} ${route}`
-                  : route || get('premise') || '',
-      city:     get('locality')
-                  || get('sublocality_level_1')
-                  || get('administrative_area_level_2')
-                  || get('postal_town'),
-      state:    getShort('administrative_area_level_1'),
+      street: streetNum && route
+        ? `${streetNum} ${route}`
+        : route || get('premise') || get('subpremise') || '',
+
+      // ✅ FIX: full fallback chain for city (handles UK/EU/AU/US)
+      city:
+        get('locality') ||
+        get('postal_town') ||              // UK cities (e.g. High Wycombe)
+        get('sublocality_level_1') ||
+        get('administrative_area_level_2') || // county/district fallback
+        get('administrative_area_level_1'),   // last resort
+
+      // ✅ FIX: shortText gives "ENG" for UK, "NY" for US etc.
+      state: getShort('administrative_area_level_1'),
+
       zip_code: get('postal_code'),
+
+      // ✅ Bonus: expose lat/lng so form can store accurate coordinates
+      latitude:  data.location?.latitude  ?? null,
+      longitude: data.location?.longitude ?? null,
     };
 
-    console.log('[PlaceDetails] parsed result:', result); // ✅
+    console.log('[PlaceDetails] parsed:', result);
     return result;
 
   } catch (error) {
@@ -716,6 +668,10 @@ export const fetchPlaceDetails = async (placeId, preloadedComponents = null) => 
     return null;
   }
 };
+
+// ─────────────────────────────────────────────────────────────
+// Open property location in Google Maps
+// ─────────────────────────────────────────────────────────────
 export const openLocationInMaps = async (property) => {
   try {
     const parts = [
@@ -751,15 +707,13 @@ export const getProperties = createAsyncThunk(
       const state = getState();
       const token = state.loginData?.accessToken || state.loginData?.token || null;
       if (!token) return rejectWithValue('Authentication token is required.');
-
       const q = new URLSearchParams();
       if (params.city)   q.append('city',   params.city);
       if (params.status) q.append('status', params.status);
       if (params.page)   q.append('page',   params.page);
       if (params.limit)  q.append('limit',  params.limit);
       const url = q.toString() ? `${PROPERTIES_API_URL}?${q}` : PROPERTIES_API_URL;
-
-        const response = await authFetch(url, { method: 'GET' });
+      const response = await authFetch(url, { method: 'GET' });
       const data = await safeJsonParse(response, { items: [] });
       if (response.ok) {
         const raw = data.items || data.properties || data.data || data || [];
@@ -782,18 +736,16 @@ export const getLandlordProperties = createAsyncThunk(
       let token = typeof params === 'string' ? null : params?.token;
       if (!token) { const s = getState(); token = s.loginData?.accessToken || s.loginData?.token || null; }
       if (!token) return rejectWithValue('Authentication token is required.');
-
-        const response = await authFetch(`${PROPERTIES_API_URL}?limit=100&page=1`, { method: 'GET' });
+      const response = await authFetch(`${PROPERTIES_API_URL}?limit=100&page=1`, { method: 'GET' });
       const data = await safeJsonParse(response, { items: [] });
       if (!response.ok) {
         if (response.status === 401) return rejectWithValue('Session expired.');
         const msg = data?.message || `HTTP ${response.status}`;
         Toast.show(msg); return rejectWithValue(msg);
       }
-        const raw = data.items || data.properties || data.data || data || [];
-        // ADD THIS ONE LINE:
-        console.log('🏠 SERVER images[0]:', raw[0]?.images);
-        return (Array.isArray(raw) ? raw : []).map(normalizeProperty);
+      const raw = data.items || data.properties || data.data || data || [];
+      console.log('🏠 SERVER images[0]:', raw[0]?.images);
+      return (Array.isArray(raw) ? raw : []).map(normalizeProperty);
     } catch (err) {
       const msg = err.message || 'Failed to fetch properties';
       Toast.show(msg); return rejectWithValue(msg);
@@ -808,8 +760,7 @@ export const getProperty = createAsyncThunk(
       const state = getState();
       const token = state.loginData?.accessToken || state.loginData?.token || null;
       if (!token) return rejectWithValue('Authentication token is required.');
-
-        const response = await authFetch(`${PROPERTIES_API_URL}/${propertyId}`, { method: 'GET' });
+      const response = await authFetch(`${PROPERTIES_API_URL}/${propertyId}`, { method: 'GET' });
       const data = await safeJsonParse(response, {});
       if (response.ok) return normalizeProperty(data.data || data.property || data.item || data);
       if (response.status === 401) return rejectWithValue('Session expired.');
@@ -823,9 +774,6 @@ export const getProperty = createAsyncThunk(
 
 // ─────────────────────────────────────────────────────────────
 // CREATE PROPERTY
-// Images are uploaded first via processPropertyImages(),
-// then the S3 fileUrls are sent in the property JSON body.
-// Pass onUploadProgress(imageIndex, totalImages) for UI updates.
 // ─────────────────────────────────────────────────────────────
 export const createProperty = createAsyncThunk(
   'properties/createProperty',
@@ -840,25 +788,22 @@ export const createProperty = createAsyncThunk(
         Array.isArray(propertyData.images)     && propertyData.images.length     > 0 ? propertyData.images :
         Array.isArray(propertyData.image_urls) && propertyData.image_urls.length > 0 ? propertyData.image_urls : [];
 
-      // ✅ Blob upload — no RNFS, no base64
       const processedImages = await processPropertyImages(rawImages, token, onUploadProgress);
-
-      const apiPayload = buildNodeApiPayload(propertyData, landlordId, processedImages);
+      const apiPayload      = buildNodeApiPayload(propertyData, landlordId, processedImages);
       console.log('CREATE payload FULL:', JSON.stringify(apiPayload, null, 2));
 
-        const response = await authFetch(PROPERTIES_API_URL, {
-              method:  'POST',
-              body:    JSON.stringify(apiPayload),
-            });
+      const response = await authFetch(PROPERTIES_API_URL, {
+        method: 'POST',
+        body:   JSON.stringify(apiPayload),
+      });
       const data = await safeJsonParse(response, {});
-        
-        if (response.ok || response.status === 201) {
-          Toast.show('Property created successfully!');
-          const raw = data.data || data.property || data.item || data;
-          // ✅ Backend may return plain filenames — always use our processedImages
-          if (processedImages?.length) raw.images = processedImages;
-          return { ...data, property: normalizeProperty(raw), timestamp: new Date().toISOString() };
-        }
+
+      if (response.ok || response.status === 201) {
+        Toast.show('Property created successfully!');
+        const raw = data.data || data.property || data.item || data;
+        if (processedImages?.length) raw.images = processedImages;
+        return { ...data, property: normalizeProperty(raw), timestamp: new Date().toISOString() };
+      }
       if (response.status === 401) return rejectWithValue('Session expired.');
       if (response.status === 403) return rejectWithValue('Access denied.');
       if (response.status === 422) {
@@ -896,18 +841,16 @@ export const updateProperty = createAsyncThunk(
       const apiPayload      = buildNodeApiPayload(propertyData, landlordId, processedImages);
       console.log('UPDATE payload images:', apiPayload.images);
 
-        const response = await authFetch(`${PROPERTIES_API_URL}/${propertyId}`, {
-               method:  'PATCH',
-               body:    JSON.stringify(apiPayload),
-             });
+      const response = await authFetch(`${PROPERTIES_API_URL}/${propertyId}`, {
+        method: 'PATCH',
+        body:   JSON.stringify(apiPayload),
+      });
       const data = await safeJsonParse(response, {});
       if (response.ok) {
         Toast.show('Property updated successfully!');
         const raw = data.data || data.property || data.item || {};
         if (!raw.id) raw.id = propertyId;
-          if (!raw.images?.length && processedImages?.length) {
-             raw.images = processedImages;
-           }
+        if (!raw.images?.length && processedImages?.length) raw.images = processedImages;
         return { ...data, property: normalizeProperty(raw), propertyId, timestamp: new Date().toISOString() };
       }
       if (response.status === 401) return rejectWithValue('Session expired.');
@@ -925,9 +868,7 @@ export const deleteProperty = createAsyncThunk(
     try {
       if (!token)      return rejectWithValue('Authentication token is required.');
       if (!propertyId) return rejectWithValue('Property ID is required.');
-        const response = await authFetch(`${PROPERTIES_API_URL}/${propertyId}`, {
-               method: 'DELETE',
-             });
+      const response = await authFetch(`${PROPERTIES_API_URL}/${propertyId}`, { method: 'DELETE' });
       const data = await safeJsonParse(response, {});
       if (response.ok) { Toast.show('Property deleted successfully!'); return { propertyId, landlordId, timestamp: new Date().toISOString() }; }
       if (response.status === 401) return rejectWithValue('Session expired.');
@@ -945,7 +886,7 @@ export const getTenantProperties = createAsyncThunk(
     try {
       if (!token)    return rejectWithValue('Authentication token is required.');
       if (!tenantId) return rejectWithValue('Tenant ID is required.');
-        const response = await authFetch(`${PROPERTIES_API_URL}?limit=200&page=1`, { method: 'GET' });
+      const response = await authFetch(`${PROPERTIES_API_URL}?limit=200&page=1`, { method: 'GET' });
       const data = await safeJsonParse(response, { items: [] });
       if (response.ok) {
         const all  = Array.isArray(data.items || data.data || []) ? (data.items || data.data || []) : [];
@@ -969,8 +910,7 @@ export const getTenantById = createAsyncThunk(
       const stored = state.properties?.landlordProperties || [];
       const found  = stored.find(p => p.tenantId === tenantId || p.tenant_id === tenantId);
       if (found) return { id: tenantId, name: found.tenantName || 'Unknown Tenant', email: '', phone: null };
-
-        const response = await authFetch(`${PROPERTIES_API_URL}?limit=200&page=1`, { method: 'GET' });
+      const response = await authFetch(`${PROPERTIES_API_URL}?limit=200&page=1`, { method: 'GET' });
       const data = await safeJsonParse(response, { items: [] });
       if (response.ok) {
         const all  = Array.isArray(data.items || data.data || []) ? (data.items || data.data || []) : [];
@@ -989,7 +929,7 @@ export const getTenantReport = createAsyncThunk(
     try {
       if (!propertyId) return rejectWithValue('Property ID is required.');
       if (!token)      return rejectWithValue('Authentication token is required.');
-        const response = await authFetch(`${PROPERTIES_API_URL}/${propertyId}/tenant-report`, { method: 'GET' });
+      const response = await authFetch(`${PROPERTIES_API_URL}/${propertyId}/tenant-report`, { method: 'GET' });
       const data = await safeJsonParse(response, {});
       if (response.ok) return data;
       if (response.status === 401) return rejectWithValue('Session expired.');
@@ -1018,7 +958,7 @@ export const getLandlordTenants = createAsyncThunk(
   'properties/getLandlordTenants',
   async ({ token }, { rejectWithValue }) => {
     try {
-        const response = await authFetch(`${PROPERTIES_API_URL}?limit=200&page=1`, { method: 'GET' });
+      const response = await authFetch(`${PROPERTIES_API_URL}?limit=200&page=1`, { method: 'GET' });
       if (!response.ok) return [];
       const data = await safeJsonParse(response, { items: [] });
       const raw  = data.items || data.properties || data.data || [];
@@ -1033,4 +973,3 @@ export const getLandlordTenants = createAsyncThunk(
     } catch (err) { return rejectWithValue(err.message || 'Failed to fetch tenants'); }
   }
 );
-

@@ -2,7 +2,6 @@ import React, { useRef } from "react";
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   Animated,
   StatusBar,
   Platform,
@@ -14,24 +13,43 @@ import {
   widthPercentageToDP as wp,
 } from "react-native-responsive-screen";
 import CollectionNavBar from "../CollectionNavBar/CollectionNavBar";
-import { getFontFamily } from '../../utils';
-import { AppIcon } from "../../components/AppIcon";
-import { icons } from "../../Assets";
-
 
 type ContainerProps = Readonly<{
   children: React.ReactNode;
   style?: object;
   scroll?: boolean;
+  noPaddingBottom?: boolean;
 }>;
 
-const Container = ({ children, style, scroll = true, noPaddingBottom = false  }: ContainerProps) => {
+// CollectionNavBar real height:
+// iOS:     paddingTop hp(6) + glassContainer hp(7) = hp(13)
+// Android: StatusBar.currentHeight + 5 + hp(7)
+
+const NAVBAR_HEIGHT_IOS     = hp(6) + hp(7);          // = hp(13)
+const NAVBAR_HEIGHT_ANDROID = (StatusBar.currentHeight || 24) + 5 + hp(7);
+
+// ProfileFooter tab bar real height:
+// glassContainer hp(7) + bottom offset hp(2) = hp(9) on iOS
+const TAB_BAR_CLEARANCE = hp(10); // hp(9) needed + hp(1) breathing room
+
+const Container = ({
+  children,
+  style,
+  scroll = true,
+  noPaddingBottom = false,
+}: ContainerProps) => {
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const onScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { y: scrollY } } }],
     { useNativeDriver: false }
   );
+
+  const topPadding = Platform.select({
+    android: NAVBAR_HEIGHT_ANDROID + hp(1),
+    ios: NAVBAR_HEIGHT_IOS + hp(0.5),
+    default: hp(14),
+  });
 
   return (
     <View style={styles.mainContainer}>
@@ -56,19 +74,30 @@ const Container = ({ children, style, scroll = true, noPaddingBottom = false  }:
         <CollectionNavBar />
       </View>
 
-      {/* Scrollable Content */}
+      {/* Content */}
       {scroll ? (
+        // ── ScrollView mode (use for regular content, NOT for screens with FlatList)
         <Animated.ScrollView
           onScroll={onScroll}
           scrollEventThrottle={16}
           style={styles.scrollWrapper}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: topPadding, paddingBottom: TAB_BAR_CLEARANCE },
+          ]}
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.container, style]}>{children}</View>
         </Animated.ScrollView>
       ) : (
-           <View style={[styles.container, styles.noScrollContainer, { paddingBottom: noPaddingBottom ? hp(2) : hp(12) }, style]}>
+        // ── No-scroll mode (use when children already has FlatList/ScrollView)
+        <View
+          style={[
+            styles.noScrollContainer,
+            { paddingTop: topPadding, paddingBottom: noPaddingBottom ? 0 : TAB_BAR_CLEARANCE },
+            style,
+          ]}
+        >
           {children}
         </View>
       )}
@@ -114,12 +143,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingTop: Platform.select({
-      android: (StatusBar.currentHeight || 0) + hp(8) + hp(2),
-      ios: hp(6) + hp(6) + hp(2),
-      default: hp(9) + hp(2),
-    }),
-    paddingBottom: hp(12),
   },
   container: {
     flexDirection: "column",
@@ -127,11 +150,6 @@ const styles = StyleSheet.create({
   },
   noScrollContainer: {
     flex: 1,
-    paddingTop: Platform.select({
-      android: (StatusBar.currentHeight || 0) + hp(9) + hp(2),
-      ios: hp(6) + hp(6) + hp(2),
-      default: hp(9) + hp(2),
-    }),
   },
 });
 

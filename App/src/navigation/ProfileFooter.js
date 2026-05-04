@@ -238,7 +238,7 @@ import LandlordProperties from '../screens/Properties/LandlordProperties';
 import LandlordSupport from '../screens/Support/LandlordSupport';
 import AIAssistant from '../screens/AIAssistant/AIAssistant';
 import AddPropertiesScreen from '../screens/Properties/AddPropertiesScreen';
-import PropertiesDetails from '../screens/Properties/PropertiesDetails';
+
 import LandlordTicketDetails from '../screens/Support/LandlordTicketDetails';
 
 import TenantManagement from '../screens/Support/TenantManagement';
@@ -379,13 +379,7 @@ const ProfileFooter = ({navigation, route}) => {
                       tabBarButton: () => null, // Hide from tab bar
                     }}
                   />
-                  <Tab.Screen
-                    name="PropertiesDetails"
-                    component={PropertiesDetails}
-                    options={{
-                      tabBarButton: () => null, // Hide from tab bar
-                    }}
-                  />
+              
                   <Tab.Screen
                     name="LandlordTicketDetails"
                     component={LandlordTicketDetails}

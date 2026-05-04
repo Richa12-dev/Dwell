@@ -4,5 +4,6 @@
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
 
+#import <RNCPushNotificationIOS/RNCPushNotificationIOS.h>
 
 #endif

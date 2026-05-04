@@ -77,7 +77,16 @@ const notificationSlice = createSlice({
       })
       .addCase(getNotifications.fulfilled, (state, action) => {
         state.loading = false;
-        state.notifications = action.payload;
+          state.notifications = action.payload.map((n) => ({
+             notification_id: n.notification_id || n.id,
+             title:           n.title || n.subject,
+             description:     n.description || n.message || n.body,
+             type:            n.type,
+             read_at:         n.read_at || (n.isRead ? new Date().toISOString() : null),
+             created_at:      n.created_at || n.createdAt,
+             data:            n.data || {},
+             status:          n.status,
+           }));
         state.unreadCount = action.payload.filter((n) => n.read_at === null).length;
         state.lastFetch = new Date().toISOString();
       })
@@ -204,7 +213,9 @@ export const notificationSelectors = {
     state.notifications.notifications.filter((n) => n.read_at === null),
   selectReadNotifications: (state) =>
     state.notifications.notifications.filter((n) => n.read_at !== null),
-  selectUnreadCount: (state) => state.notifications.unreadCount,
+    // ← count directly from array so it's always in sync
+    selectUnreadCount: (state) =>
+      state.notifications.notifications.filter((n) => n.read_at === null).length,
   selectLoading: (state) => state.notifications.loading,
   selectRefreshing: (state) => state.notifications.refreshing,
   selectError: (state) => state.notifications.error,

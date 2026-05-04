@@ -291,7 +291,7 @@ const LandlordDashboardView = () => {
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <View style={{ flex: 1 }}>
-      <Container scroll={false}>
+      <Container scroll={false} >
         <FlatList
           data={activeTab === 'properties' ? filteredAndSortedProperties : filteredTenants}
           keyExtractor={(item, index) => (

@@ -30,8 +30,11 @@ export const registerDeviceToken = () => {
     try {
       const savedToken = await APNsTokenModule.getStoredToken();
       if (savedToken && isValidApnsToken(savedToken)) {
-        console.log('[APNs] TOKEN FROM STORAGE:', savedToken);
-        console.log('[APNs] Token length:', savedToken.length);
+          console.log('[APNs] TOKEN FROM STORAGE:', savedToken);
+             console.log('[APNs] Token length:', savedToken.length);
+             console.log('[APNs] __DEV__ value:', __DEV__);              // ← ADD
+             console.log('[APNs] apnsEnv:', __DEV__ ? 'sandbox' : 'production'); // ← ADD
+
         return resolve({
           token:    savedToken,
           apnsEnv:  __DEV__ ? 'sandbox' : 'production',

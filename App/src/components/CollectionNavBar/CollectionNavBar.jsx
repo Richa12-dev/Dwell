@@ -17,14 +17,16 @@ import {
 import {useDispatch, useSelector} from 'react-redux';
 import {icons} from '../../Assets';
 import {AppIcon} from '../AppIcon';
-import {loginDataSelectors} from '../../Redux/Login/loginSlice';
+import {loginDataSelectors, unregisterDeviceToken} from '../../Redux/Login/loginSlice';
 import {logout} from '../../Redux/Login/services';
 import {Colors} from '../../Theme';
 import {getFontFamily} from '../../utils';
 import {
   notificationSelectors,
-  getUnreadCount,
+ getNotifications,
 } from '../../Redux/NotificationServices/notificationSlice';
+
+
 
 const CollectionNavBar = () => {
   const navigation = useNavigation();
@@ -36,18 +38,32 @@ const CollectionNavBar = () => {
   const unreadCount = useSelector(notificationSelectors.selectUnreadCount);
   const hasUnread = unreadCount > 0;
  
-  // Re-fetch unread count every time screen comes into focus
-  // So when user reads notifications and comes back, the dot disappears
-  useFocusEffect(
-    useCallback(() => {
-      dispatch(getUnreadCount());
-    }, [dispatch]),
-  );
+  
+const lastFetch = useSelector(notificationSelectors.selectLastFetch);
+
+useFocusEffect(
+  useCallback(() => {
+    const now       = Date.now();
+    const lastTime  = lastFetch ? new Date(lastFetch).getTime() : 0;
+    const isStale   = now - lastTime > 10000; // 30 seconds
+
+    if (isStale) {
+      dispatch(getNotifications({ filter: 'all', limit: 100 }));
+    }
+  }, [dispatch, lastFetch]),
+);
  
 
   const handleLogout = async () => {
     try {
       setShowDialog(false);
+        // ── Unregister device token first ─────────────────────────────
+ const deviceToken = useSelector((state) => state.loginData?.deviceToken);
+     console.log('🔍 Device token before logout:', deviceToken); // ← ADD
+    if (deviceToken) {
+      await dispatch(unregisterDeviceToken(deviceToken)).unwrap();
+        console.log('✅ Device token unregistered:', deviceToken);
+    }
       await dispatch(logout({token})).unwrap();
     } catch (error) {
       console.error('Logout failed:', error);

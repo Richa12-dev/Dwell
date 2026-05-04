@@ -8,11 +8,18 @@ import LinearGradient from 'react-native-linear-gradient';
 import branch from 'react-native-branch';
 import { useSelector } from 'react-redux';
 import { loginDataSelectors } from '../../Redux/Login/loginSlice';
+import {
+  getPendingNotification,
+  clearPendingNotification,
+} from '../../utils/pendingNotification';
+import { NavigationRef } from '../../navigation/RouterServices';
+import PushNotificationIOS from '@react-native-community/push-notification-ios';
+import { getScreenFromNotification } from '../../utils/notificationHelper';
 
 const Splash = ({ navigation }) => {
  const { isLogged, userData, isFirstLogin } = useSelector(loginDataSelectors.getLoginStatus);
 
-  
+  const timerRef = React.useRef(null);
  useEffect(() => {
   let navigated = false;
   const nav = (screen, params) => {
@@ -22,14 +29,47 @@ const Splash = ({ navigation }) => {
   };
   
   // Navigate to correct dashboard based on role
-    const goToDashboard = () => {
-      const role = userData?.role;
-      if (role === 'admin')            nav('AdminDashboard');
-      else if (role === 'tenant')      nav('BottomFotter');
-      else if (role === 'landlord')    nav('ProfileFooter');
-      else if (role === 'contractor')  isFirstLogin ? nav('Welcome') : nav('ContractorHome');
-      else                             nav('BottomFotter');
-    };
+const goToDashboard = (notifData = null) => {
+    const role = userData?.role;
+      const roleKey =
+    role === 'landlord'   ? 'landlord'   :
+    role === 'contractor' ? 'contractor' : 'tenant';
+
+
+   if (notifData && (notifData.type || notifData.screen)) {
+    const { tabNavigator, screen, params } = getScreenFromNotification(notifData, roleKey);
+
+    console.log(' Notification nav:', { tabNavigator, screen, params });
+
+      if (screen && screen !== 'TenantNotification') {
+        if (navigated) return;
+        navigated = true;
+        const dashScreen =
+          role === 'admin'      ? 'AdminDashboard' :
+          role === 'tenant'     ? 'BottomFotter'   :
+          role === 'landlord'   ? 'ProfileFooter'  :
+          role === 'contractor' ? (isFirstLogin ? 'Welcome' : 'ContractorHome') :
+          'BottomFotter';
+
+        // ✅ Reset stack — no Splash, no flash
+        navigation.reset({
+          index: 1,
+          routes: [
+            { name: tabNavigator || dashScreen },
+            { name: screen, params },
+          ],
+        });
+        return;
+      }
+    }
+
+    // ── Normal dashboard navigation (unchanged) ────────────────────
+    if (role === 'admin')           nav('AdminDashboard');
+    else if (role === 'tenant')     nav('BottomFotter');
+    else if (role === 'landlord')   nav('ProfileFooter');
+    else if (role === 'contractor') isFirstLogin ? nav('Welcome') : nav('ContractorHome');
+    else                            nav('BottomFotter');
+  };
 
   // 1. Branch deep link (works for fresh installs)
   const unsubscribeBranch = branch.subscribe(({ error, params }) => {
@@ -59,21 +99,37 @@ const Splash = ({ navigation }) => {
 
   checkDirectLink();
 
- // 3. Fallback — check login state
-const timer = setTimeout(() => {
-  if (isLogged && userData) {
-    goToDashboard();          // ← restore session
-  } else {
-    nav('OnboardingScreen');  // ← first-time / logged-out user
-  }
-}, 3000);
 
+ PushNotificationIOS.getInitialNotification().then((notification) => {
+    // notification is a PushNotificationIOS object — must call .getData()
+    // NOT notification?.data (that's a plain-object pattern, not the iOS SDK)
+    const raw = notification ? notification.getData() : null;
+    const notifData = raw?.data || raw || null;
+
+    console.log(' Splash notifData:', notifData);
+
+  const hasValidNotif = !!(notifData?.type || notifData?.screen);
+
+  console.log('Splash notifData:', notifData, 'valid:', hasValidNotif);
+
+  const delay = hasValidNotif ? 0 : 3000;
+  
+    timerRef.current = setTimeout(() => {
+    if (isLogged && userData) {
+      goToDashboard(hasValidNotif ? notifData : null);
+    } else {
+      nav('OnboardingScreen');
+    }
+  }, delay);
+  });
+
+  // ── Cleanup (UNCHANGED + timer) ───────────────────────────────────
   return () => {
     unsubscribeBranch();
-    clearTimeout(timer);
+    clearTimeout(timerRef.current);  // ← clears notification timer too
   };
-}, [navigation, isLogged, userData, isFirstLogin]);
 
+}, [navigation, isLogged, userData, isFirstLogin]);
   return (
     <View style={styles.container}>
       <StatusBar backgroundColor={'#000'} barStyle="light-content" />
@@ -126,7 +182,7 @@ const styles = StyleSheet.create({
   },
   gradientOverlay: {
     ...StyleSheet.absoluteFillObject,
-    // backgroundColor: 'rgba(0, 0, 0, 0.2)', 
+    // backgroundColor: 'rgba(0, 0, 0, 0.2)',
   },
   logoContainer: {
     alignItems: 'center',

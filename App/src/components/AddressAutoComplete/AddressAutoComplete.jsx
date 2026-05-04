@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, Modal,
+  View, Text, TouchableOpacity,
   ActivityIndicator, StyleSheet, FlatList,
 } from 'react-native';
 import { TextInput } from 'react-native-paper';
@@ -17,6 +17,30 @@ import {
   fetchPlaceDetails,
 } from '../../Redux/Properties/servicesNode';
 
+
+const getPlaceId = (item) =>
+  item?.placePrediction?.placeId ||
+  item?.placePrediction?.place?.replace('places/', '') ||
+  item?.place_id ||
+  null;
+
+const getMainText = (item) =>
+  item?.placePrediction?.structuredFormat?.mainText?.text ||
+  item?.placePrediction?.text?.text ||
+  item?.structured_formatting?.main_text ||
+  item?.description ||
+  '';
+
+const getSecondaryText = (item) =>
+  item?.placePrediction?.structuredFormat?.secondaryText?.text ||
+  item?.structured_formatting?.secondary_text ||
+  '';
+
+
+const ROW_HEIGHT   = hp(1.4) + hp(1.4) + hp(1.7) + hp(1.4) + 2 + 1;
+const MAX_ROWS     = 5;
+const DROPDOWN_H   = ROW_HEIGHT * MAX_ROWS;
+
 const AddressAutoComplete = ({
   value = { street: '', city: '', state: '', zip_code: '' },
   onChange,
@@ -28,25 +52,15 @@ const AddressAutoComplete = ({
   const [fetching,     setFetching]     = useState(false);
   const [autoSelected, setAutoSelected] = useState(false);
 
-  // ── For Modal positioning ─────────────────────────────────
-  const [dropdownTop,   setDropdownTop]   = useState(0);
-  const [dropdownLeft,  setDropdownLeft]  = useState(0);
-  const [dropdownWidth, setDropdownWidth] = useState(0);
-  const inputRef = useRef(null);
   const debounceRef = useRef(null);
-
-  // ── Measure input position to anchor the Modal dropdown ──
-  const measureInput = () => {
-    inputRef.current?.measureInWindow((x, y, width, height) => {
-      setDropdownTop(y + height);
-      setDropdownLeft(x);
-      setDropdownWidth(width);
-    });
-  };
+  const onChangeRef = useRef(onChange);
+  const valueRef    = useRef(value);
+  onChangeRef.current = onChange;
+  valueRef.current    = value;
 
   const updateField = useCallback((field, text) => {
-    onChange?.({ ...value, [field]: text });
-  }, [value, onChange]);
+    onChangeRef.current?.({ ...valueRef.current, [field]: text });
+  }, []);
 
   const handleStreetChange = useCallback((text) => {
     updateField('street', text);
@@ -64,10 +78,9 @@ const AddressAutoComplete = ({
       setFetching(true);
       try {
         const results = await fetchAddressSuggestions(text);
-        console.log('[AddressAutoComplete] suggestions:', results?.length);
-        if (results.length > 0) {
-          measureInput(); // measure position before showing
-          setSuggestions(results);
+        if (results?.length > 0) {
+          // ── Cap to MAX_ROWS so FlatList never renders more than 5 ──────
+          setSuggestions(results.slice(0, MAX_ROWS));
           setShowDropdown(true);
         } else {
           setSuggestions([]);
@@ -81,125 +94,107 @@ const AddressAutoComplete = ({
     }, 400);
   }, [updateField]);
 
-  const handleSelect = useCallback(async (prediction) => {
-    console.log('[AddressAutoComplete] selected:', prediction.place_id);
-    setShowDropdown(false);
-    setSuggestions([]);
-
-    const mainText =
-      prediction.structured_formatting?.main_text || prediction.description;
-
-    onChange?.({ ...value, street: mainText });
-
+  const handleSelect = useCallback(async (item) => {
     try {
-      const details = await fetchPlaceDetails(prediction.place_id);
-      console.log('[AddressAutoComplete] details:', JSON.stringify(details));
+      const placeId  = getPlaceId(item);
+      const mainText = getMainText(item);
+      if (!placeId) return;
+
+      setShowDropdown(false);
+      setSuggestions([]);
+
+      onChangeRef.current?.({ ...valueRef.current, street: mainText });
+
+      const details = await fetchPlaceDetails(placeId);
       if (details) {
-        onChange?.({
+        onChangeRef.current?.({
           street:   details.street   || mainText,
           city:     details.city     || '',
           state:    details.state    || '',
           zip_code: details.zip_code || '',
         });
-        setAutoSelected(true);
-      } else {
-        // No details but street is already set
-        setAutoSelected(true);
       }
-    } catch (e) {
-      console.warn('[AddressAutoComplete] place details error:', e);
+      setAutoSelected(true);
+    } catch (error) {
+      console.warn('[AddressAutoComplete] handleSelect error:', error);
       setAutoSelected(true);
     }
-  }, [value, onChange]);
+  }, []);
+
+  const renderItem = useCallback(({ item, index }) => (
+    <TouchableOpacity
+      style={[s.item, index < suggestions.length - 1 && s.itemBorder]}
+      onPress={() => handleSelect(item)}
+      activeOpacity={0.7}
+    >
+      <AppIcon name={icons.location} size={hp(2)} color={Colors.red} />
+      <View style={s.textWrap}>
+        <Text style={s.mainText} numberOfLines={1}>
+          {getMainText(item)}
+        </Text>
+        {!!getSecondaryText(item) && (
+          <Text style={s.subText} numberOfLines={1}>
+            {getSecondaryText(item)}
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
+  ), [suggestions.length, handleSelect]);
+
+  // ── Exact dropdown height = number of actual items × row height ───────────
+  const dropdownHeight = ROW_HEIGHT * suggestions.length;
 
   return (
     <View style={[s.root, containerStyle]}>
 
-      {/* ── Street Address ─────────────────────────────────── */}
       <Text style={s.subLabel}>Street Address</Text>
-      <View ref={inputRef} collapsable={false}>
+
+      <View style={s.streetWrapper}>
         <TextInput
           mode="outlined"
           placeholder="Enter Street Address"
           value={value.street}
           onChangeText={handleStreetChange}
-          onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
           style={s.input}
           outlineColor={Colors.border}
           activeOutlineColor={Colors.red}
           error={!!errors.street}
         />
+
         {fetching && (
           <ActivityIndicator size="small" color={Colors.red} style={s.spinner} />
         )}
-      </View>
-      {!!errors.street && <Text style={s.errorText}>{errors.street}</Text>}
 
-      {/* ── Modal Dropdown — renders OUTSIDE ScrollView ──── */}
-      <Modal
-        visible={showDropdown && suggestions.length > 0}
-        transparent
-        animationType="none"
-        onRequestClose={() => setShowDropdown(false)}
-      >
-        {/* Tap outside to dismiss */}
-        <TouchableOpacity
-          style={s.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowDropdown(false)}
-        >
-          <View
-            style={[
-              s.dropdown,
-              {
-                top:   dropdownTop,
-                left:  dropdownLeft,
-                width: dropdownWidth,
-              },
-            ]}
-          >
+        {showDropdown && suggestions.length > 0 && (
+          <View style={[s.dropdown, { height: dropdownHeight }]}>
+            {/*
+              FlatList instead of ScrollView:
+              - getItemLayout gives exact row dimensions so FlatList
+                never miscalculates its own height
+              - No ScrollView wrapper = no nested scroll warnings
+              - scrollEnabled={false} since we already cap to 5 items,
+                no scrolling needed — list fills exactly its height
+            */}
             <FlatList
               data={suggestions}
-              keyExtractor={(item) => item.place_id}
+              keyExtractor={(item, i) => getPlaceId(item) ?? String(i)}
+              renderItem={renderItem}
+              scrollEnabled={false}
               keyboardShouldPersistTaps="always"
-              renderItem={({ item, index }) => (
-                <TouchableOpacity
-                  style={[
-                    s.item,
-                    index < suggestions.length - 1 && s.itemBorder,
-                  ]}
-                  onPress={() => handleSelect(item)}
-                  activeOpacity={0.7}
-                >
-                  <AppIcon name={icons.location} size={hp(2)} color={Colors.red} />
-                  <View style={s.textWrap}>
-                    <Text style={s.mainText} numberOfLines={1}>
-                      {item.structured_formatting?.main_text || item.description}
-                    </Text>
-                    {!!item.structured_formatting?.secondary_text && (
-                      <Text style={s.subText} numberOfLines={1}>
-                        {item.structured_formatting.secondary_text}
-                      </Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              )}
+              getItemLayout={(_, index) => ({
+                length: ROW_HEIGHT,
+                offset: ROW_HEIGHT * index,
+                index,
+              })}
             />
           </View>
-        </TouchableOpacity>
-      </Modal>
+        )}
+      </View>
 
-      {/* ── Auto-filled badge ─────────────────────────────── */}
-      {autoSelected && (
-        <View style={s.autoBadge}>
-          <AppIcon name={icons.ok} size={hp(1.8)} color="green" />
-          <Text style={s.autoBadgeText}>
-            Address auto-filled — you can still edit the fields below
-          </Text>
-        </View>
-      )}
+      {!!errors.street && <Text style={s.errorText}>{errors.street}</Text>}
 
-      {/* ── City + State ──────────────────────────────────── */}
+  
+
       <View style={s.row}>
         <View style={s.half}>
           <Text style={s.subLabel}>City</Text>
@@ -231,7 +226,6 @@ const AddressAutoComplete = ({
         </View>
       </View>
 
-      {/* ── Zip Code ─────────────────────────────────────── */}
       <Text style={s.subLabel}>Zip Code</Text>
       <TextInput
         mode="outlined"
@@ -243,12 +237,18 @@ const AddressAutoComplete = ({
         outlineColor={Colors.border}
         activeOutlineColor={Colors.red}
       />
+
     </View>
   );
 };
 
 const s = StyleSheet.create({
-  root:    { zIndex: 1 },
+  root: {
+  
+    alignSelf: 'stretch',
+    zIndex:    1,
+    overflow:  'visible',
+  },
   subLabel: {
     fontSize:     hp(1.6),
     fontFamily:   getFontFamily('medium'),
@@ -256,55 +256,51 @@ const s = StyleSheet.create({
     marginTop:    hp(1),
     marginBottom: hp(0.3),
   },
+
+  // ── Fixed to exact input height — dropdown does NOT stretch this ──────────
+  streetWrapper: {
+   zIndex:     999,
+  elevation:  999,
+  overflow:   'visible',
+  position:   'relative',
+  },
+
   input:   { backgroundColor: '#fff', fontSize: hp(1.7), height: hp(6) },
   spinner: { position: 'absolute', right: wp(3), top: hp(1.8) },
+
   errorText: {
     fontSize:   hp(1.4),
     color:      Colors.red,
     marginTop:  hp(0.3),
     fontFamily: getFontFamily('regular'),
   },
-  autoBadge: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    gap:             wp(2),
-    backgroundColor: '#EFF9EF',
-    borderRadius:    8,
-    padding:         wp(3),
-    marginTop:       hp(0.8),
-    marginBottom:    hp(0.5),
-  },
-  autoBadgeText: {
-    flex:       1,
-    fontSize:   hp(1.5),
-    color:      'green',
-    fontFamily: getFontFamily('regular'),
-  },
+
   row:  { flexDirection: 'row', gap: wp(3) },
   half: { flex: 1 },
 
-  // ── Modal dropdown styles ─────────────────────────────────
-  modalOverlay: {
-    flex:            1,
-    backgroundColor: 'transparent',
-  },
+  // ── Dropdown: absolute, height set dynamically = exact item count ─────────
   dropdown: {
     position:        'absolute',
+    top:             hp(6.2),
+    left:            0,
+    right:           0,
     backgroundColor: '#fff',
-    borderRadius:    8,
+    borderRadius:    10,
     borderWidth:     1,
-    borderColor:     Colors.border,
+    borderColor:     Colors.border || '#E0E0E0',
     shadowColor:     '#000',
-    shadowOffset:    { width: 0, height: 4 },
-    shadowOpacity:   0.15,
-    shadowRadius:    8,
+    shadowOffset:    { width: 0, height: 3 },
+    shadowOpacity:   0.12,
+    shadowRadius:    6,
     elevation:       20,
-    maxHeight:       hp(50),
+    zIndex:          999,
+    overflow:        'hidden',
   },
+
   item: {
     flexDirection:     'row',
     alignItems:        'center',
-    paddingVertical:   hp(1.4),
+    height:            ROW_HEIGHT,    // explicit height matches getItemLayout
     paddingHorizontal: wp(3),
     gap:               wp(3),
     backgroundColor:   '#fff',
@@ -312,12 +308,12 @@ const s = StyleSheet.create({
   itemBorder: { borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   textWrap:   { flex: 1 },
   mainText: {
-    fontSize:   hp(1.7),
+    fontSize:   hp(1.5),
     fontFamily: getFontFamily('medium'),
     color:      Colors.black,
   },
   subText: {
-    fontSize:   hp(1.4),
+    fontSize:   hp(1.2),
     fontFamily: getFontFamily('regular'),
     color:      Colors.placeholder,
     marginTop:  2,

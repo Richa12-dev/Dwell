@@ -553,6 +553,13 @@ const AddPropertiesScreen = ({ onClose = () => {}, propertyData = null }) => {
       setVerifiedAddress(null);
     }
   }, []);
+  
+    const handleAddressChange = useCallback(({ street, city, state, zip_code }) => {
+    handleChange('street',   street   ?? '');
+    handleChange('city',     city     ?? '');
+    handleChange('state',    state    ?? '');
+    handleChange('zip_code', zip_code ?? '');
+  }, [handleChange]);
 
   const toggleAmenity = useCallback((key) => {
     setForm(prev => ({ ...prev, amenities: { ...prev.amenities, [key]: !prev.amenities[key] } }));
@@ -761,13 +768,14 @@ longitude: typeof form.lng === 'number' ? form.lng  : 0,
         await dispatch(updateProperty(propertyPayload)).unwrap();
       } else {
         setIsSubmitting(true);
-        await dispatch(createProperty(propertyPayload)).unwrap();
-      }
+       const createResult = await dispatch(createProperty(propertyPayload)).unwrap();
 
-      // ✅ CRITICAL: Re-fetch full properties list so Redux has fresh image URLs.
-      // Without this, the Redux state still has the old property (without images)
-      // because updateProperty could not find it by ID to patch it in-place.
-      // getLandlordProperties completely replaces the array with server data.
+  // ── 🧪 TEMP: Log full API response to see exact shape ────────────
+  console.log('✅ CREATE PROPERTY RESPONSE:', JSON.stringify(createResult, null, 2));
+  // ── END TEMP ──────────────────────────────────────────────────────
+}
+
+     
       await dispatch(getLandlordProperties({ token: authToken }));
 
       setUploadOverlay(false);
@@ -789,7 +797,8 @@ longitude: typeof form.lng === 'number' ? form.lng  : 0,
   const statusOptions   = ["Available", "Currently Occupied", "Under Maintenance"];
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <Container>
         {/* Header */}
         <View style={styles.header}>
@@ -936,7 +945,7 @@ const ol = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', zIndex: 999,
   },
   card: {
-    backgroundColor: '#fff', borderRadius: 16,
+    backgroundColor:Colors.backgroundColor, borderRadius: 16,
     padding: wp(6), width: wp(80), alignItems: 'center',
   },
   title: {
